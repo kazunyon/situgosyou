@@ -17,14 +17,26 @@ function App() {
   const [loading, setLoading] = useState(true)
   const [authEmail, setAuthEmail] = useState('')
   const [signingIn, setSigningIn] = useState(false)
+  const [sentToEmail, setSentToEmail] = useState<string | null>(null)
+  const [currentUserEmail, setCurrentUserEmail] = useState<string | null>(null)
   const titleRef = useRef<HTMLInputElement>(null)
 
   const refresh = async () => {
     setLoading(true)
-    try { setMemos(await loadMemos()) } catch { setNotice('読み込みに失敗しました。通信を確認してください。') } finally { setLoading(false) }
+    try { setMemos(await loadMemos()) } catch (error) { const message = error instanceof Error ? error.message : (typeof error === 'object' && error && 'message' in error && typeof error.message === 'string' ? error.message : String(error)); setNotice('読み込みに失敗しました：' + message) } finally { setLoading(false) }
   }
 
   useEffect(() => { void refresh() }, [])
+  useEffect(() => {
+    if (!supabase) return
+    let mounted = true
+    void supabase.auth.getSession().then(({ data }) => { if (mounted) setCurrentUserEmail(data.session?.user.email ?? null) })
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      setCurrentUserEmail(session?.user.email ?? null)
+      if (session) void refresh()
+    })
+    return () => { mounted = false; subscription.unsubscribe() }
+  }, [])
   useEffect(() => { if (draft) setTimeout(() => titleRef.current?.focus(), 100) }, [draft])
 
   const displayed = useMemo(() => memos.filter((memo) => !memo.deleted && (filter === 'all' || memo.marked) && `${memo.title} ${memo.meaning}`.toLowerCase().includes(query.toLowerCase())), [filter, memos, query])
@@ -69,7 +81,18 @@ function App() {
     setSigningIn(true)
     const { error } = await supabase.auth.signInWithOtp({ email: authEmail, options: { emailRedirectTo: window.location.origin } })
     setSigningIn(false)
-    setNotice(error ? 'ログインメールを送れませんでした。' : 'メールを送りました。PCでもスマホでも同じメールでログインできます。')
+    if (error) { setNotice(`ログインメールを送れませんでした：${error.message}`); return }
+    setSentToEmail(authEmail)
+    setNotice('確認メールを送りました。メール内のリンクを開いてください。')
+  }
+  const signOut = async () => {
+    if (!supabase) return
+    await supabase.auth.signOut()
+    setCurrentUserEmail(null)
+    setSentToEmail(null)
+    setAuthEmail('')
+    setMemos([])
+    setNotice('ログアウトしました。別の人のメールアドレスでログインできます。')
   }
 
   return <main className="app-shell">
@@ -86,7 +109,7 @@ function App() {
       </article>)}
     </section>
     {!isCloudConfigured && <section className="local-note"><strong>いまはこの端末だけの試作モードです</strong><span>同期を有効にするには、Supabaseの設定を追加します。</span></section>}
-    {isCloudConfigured && <form className="sync-box" onSubmit={sendMagicLink}><LogIn size={22} /><div><strong>PCとスマホで同期</strong><span>同じメールアドレスでログインします</span></div><input type="email" value={authEmail} onChange={(event) => setAuthEmail(event.target.value)} placeholder="メールアドレス" required /><button disabled={signingIn}>{signingIn ? '送信中' : 'ログイン'}</button></form>}
+    {isCloudConfigured && (currentUserEmail ? <section className="sync-box sync-status"><Check size={22} /><div><strong>{currentUserEmail} で同期中</strong><span>この人のメモだけを表示しています。</span></div><button type="button" onClick={() => void signOut()}>別の人でログイン</button></section> : sentToEmail ? <section className="sync-box sync-status"><Check size={22} /><div><strong>確認メールを送信しました</strong><span><b>{sentToEmail}</b> のメール内にあるリンクを開いてください。ここで同じメールアドレスを入力し直す必要はありません。</span></div></section> : <form className="sync-box" onSubmit={sendMagicLink}><LogIn size={22} /><div><strong>PCとスマホで同期</strong><span>同じメールアドレスでログインします</span></div><input type="email" value={authEmail} onChange={(event) => setAuthEmail(event.target.value)} placeholder="メールアドレス" required /><button disabled={signingIn}>{signingIn ? '送信中' : 'ログイン'}</button></form>)}
     <nav className="bottom-nav"><button className="active"><Search size={21} />すべて</button><button onClick={() => setFilter('marked')}><Star size={21} />マーク</button><button><Settings size={21} />設定</button></nav>
     {notice && <div className="toast"><Check size={20} />{notice}<button onClick={() => setNotice('')} aria-label="閉じる"><X size={18} /></button></div>}
     {draft && <div className="modal-backdrop" role="presentation"><form className="editor" onSubmit={persist}><header><button type="button" className="icon-button" onClick={() => setDraft(null)} aria-label="戻る"><ChevronLeft /></button><h2>{memos.some((memo) => memo.id === draft.id) ? 'メモを直す' : '新しく書く'}</h2><button className="save-button" type="submit">保存</button></header><label>タイトル<input ref={titleRef} value={draft.title} onChange={(event) => setDraft({ ...draft, title: event.target.value })} placeholder="例：田中さん" /></label><button type="button" className="dictation" onClick={dictate}><Mic size={23} /> 話してタイトルを書く</button><label>意味・説明<textarea value={draft.meaning} onChange={(event) => setDraft({ ...draft, meaning: event.target.value })} placeholder="思い出すための説明を書きます" rows={4} /></label><label className="mark-toggle"><input type="checkbox" checked={draft.marked} onChange={(event) => setDraft({ ...draft, marked: event.target.checked })} /><Star fill={draft.marked ? 'currentColor' : 'none'} /> 大事なメモとしてマークする</label>{memos.some((memo) => memo.id === draft.id) && <button type="button" className="delete-button" onClick={() => { void erase(draft); setDraft(null) }}><Trash2 size={21} /> このメモを削除</button>}</form></div>}
