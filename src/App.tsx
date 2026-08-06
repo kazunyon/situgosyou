@@ -37,7 +37,7 @@ function App() {
     })
     return () => { mounted = false; subscription.unsubscribe() }
   }, [])
-  useEffect(() => { if (draft) setTimeout(() => titleRef.current?.focus(), 100) }, [draft])
+  useEffect(() => { if (draft) setTimeout(() => titleRef.current?.focus(), 100) }, [draft?.id])
 
   const displayed = useMemo(() => memos.filter((memo) => !memo.deleted && (filter === 'all' || memo.marked) && `${memo.title} ${memo.meaning}`.toLowerCase().includes(query.toLowerCase())), [filter, memos, query])
 
