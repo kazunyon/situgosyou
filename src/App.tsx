@@ -79,7 +79,10 @@ function App() {
     event.preventDefault()
     if (!supabase) return
     setSigningIn(true)
-    const { error } = await supabase.auth.signInWithOtp({ email: authEmail, options: { emailRedirectTo: window.location.origin } })
+    const { error } = await supabase.auth.signInWithOtp({
+      email: authEmail,
+      options: { emailRedirectTo: `${window.location.origin}${import.meta.env.BASE_URL}` }
+    })
     setSigningIn(false)
     if (error) { setNotice(`ログインメールを送れませんでした：${error.message}`); return }
     setSentToEmail(authEmail)
