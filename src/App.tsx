@@ -1,8 +1,9 @@
-import { FormEvent, useEffect, useMemo, useRef, useState } from 'react'
-import { Check, ChevronLeft, Edit3, LogIn, Mic, Plus, Search, Settings, Star, Trash2, X } from 'lucide-react'
+import { ChangeEvent, FormEvent, useEffect, useMemo, useRef, useState } from 'react'
+import { Check, ChevronLeft, ChevronRight, Download, Edit3, LogIn, Mic, Plus, Search, Settings, Star, Trash2, Upload, X } from 'lucide-react'
 import { isCloudConfigured, supabase } from './supabase'
-import { loadMemos, removeMemo, saveMemo } from './storage'
+import { loadMemos, parseBackup, removeMemo, replaceMemos, saveMemo, serializeBackup } from './storage'
 import type { Filter, Memo } from './types'
+import './settings.css'
 
 const emptyDraft = (): Memo => ({ id: crypto.randomUUID(), title: '', meaning: '', marked: false, deleted: false, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() })
 
@@ -19,7 +20,11 @@ function App() {
   const [signingIn, setSigningIn] = useState(false)
   const [sentToEmail, setSentToEmail] = useState<string | null>(null)
   const [currentUserEmail, setCurrentUserEmail] = useState<string | null>(null)
+  const [settingsOpen, setSettingsOpen] = useState(false)
+  const [backingUp, setBackingUp] = useState(false)
+  const [restoring, setRestoring] = useState(false)
   const titleRef = useRef<HTMLInputElement>(null)
+  const backupFileRef = useRef<HTMLInputElement>(null)
 
   const refresh = async () => {
     setLoading(true)
@@ -40,6 +45,7 @@ function App() {
   useEffect(() => { if (draft) setTimeout(() => titleRef.current?.focus(), 100) }, [draft?.id])
 
   const displayed = useMemo(() => memos.filter((memo) => !memo.deleted && (filter === 'all' || memo.marked) && `${memo.title} ${memo.meaning}`.toLowerCase().includes(query.toLowerCase())), [filter, memos, query])
+  const backupUnavailable = isCloudConfigured && !currentUserEmail
 
   const openNew = () => setDraft(emptyDraft())
   const openEdit = (memo: Memo) => setDraft({ ...memo })
@@ -97,9 +103,56 @@ function App() {
     setMemos([])
     setNotice('ログアウトしました。別の人のメールアドレスでログインできます。')
   }
+  const downloadBackup = async () => {
+    setBackingUp(true)
+    try {
+      const latestMemos = await loadMemos()
+      setMemos(latestMemos)
+      const blob = new Blob([serializeBackup(latestMemos)], { type: 'application/json;charset=utf-8' })
+      const url = URL.createObjectURL(blob)
+      const now = new Date()
+      const date = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}${String(now.getDate()).padStart(2, '0')}`
+      const link = document.createElement('a')
+      link.href = url
+      link.download = `ことばメモ_バックアップ_${date}.json`
+      document.body.appendChild(link)
+      link.click()
+      link.remove()
+      setTimeout(() => URL.revokeObjectURL(url), 1000)
+      setNotice(`${latestMemos.length}件のメモをバックアップしました`)
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      setNotice(`バックアップに失敗しました：${message}`)
+    } finally {
+      setBackingUp(false)
+    }
+  }
+  const restoreBackup = async (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0]
+    event.target.value = ''
+    if (!file) return
+
+    setRestoring(true)
+    try {
+      const imported = parseBackup(await file.text())
+      const confirmed = confirm(`バックアップには${imported.length}件のメモがあります。\n\n現在のメモをすべて置き換えて、バックアップを戻しますか？`)
+      if (!confirmed) return
+      const restored = await replaceMemos(imported)
+      setMemos(restored)
+      setFilter('all')
+      setQuery('')
+      setSettingsOpen(false)
+      setNotice(`${restored.length}件のメモを戻しました`)
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      setNotice(`バックアップを戻せませんでした：${message}`)
+    } finally {
+      setRestoring(false)
+    }
+  }
 
   return <main className="app-shell">
-    <header className="topbar"><div className="brand"><span className="brand-mark">こ</span><h1>ことばメモ</h1></div><button className="icon-button" aria-label="設定"><Settings size={25} /></button></header>
+    <header className="topbar"><div className="brand"><span className="brand-mark">こ</span><h1>ことばメモ</h1></div><button type="button" className="icon-button" onClick={() => setSettingsOpen(true)} aria-label="設定"><Settings size={25} /></button></header>
     <section className="intro"><h2>思い出したいことを、すぐに。</h2><p>ことばでも、文章でも書けます。</p></section>
     <label className="search-box"><Search size={24} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="さがす" aria-label="メモをさがす" /></label>
     <section className="actions"><button className="primary-button" onClick={openNew}><Plus size={28} /> 新しく書く</button><button className="voice-button" onClick={() => { openNew(); setTimeout(dictate, 120) }}><Mic size={25} /> 話して書く</button></section>
@@ -113,9 +166,10 @@ function App() {
     </section>
     {!isCloudConfigured && <section className="local-note"><strong>いまはこの端末だけの試作モードです</strong><span>同期を有効にするには、Supabaseの設定を追加します。</span></section>}
     {isCloudConfigured && (currentUserEmail ? <section className="sync-box sync-status"><Check size={22} /><div><strong>{currentUserEmail} で同期中</strong><span>この人のメモだけを表示しています。</span></div><button type="button" onClick={() => void signOut()}>別の人でログイン</button></section> : sentToEmail ? <section className="sync-box sync-status"><Check size={22} /><div><strong>確認メールを送信しました</strong><span><b>{sentToEmail}</b> のメール内にあるリンクを開いてください。ここで同じメールアドレスを入力し直す必要はありません。</span></div></section> : <form className="sync-box" onSubmit={sendMagicLink}><LogIn size={22} /><div><strong>PCとスマホで同期</strong><span>同じメールアドレスでログインします</span></div><input type="email" value={authEmail} onChange={(event) => setAuthEmail(event.target.value)} placeholder="メールアドレス" required /><button disabled={signingIn}>{signingIn ? '送信中' : 'ログイン'}</button></form>)}
-    <nav className="bottom-nav"><button className="active"><Search size={21} />すべて</button><button onClick={() => setFilter('marked')}><Star size={21} />マーク</button><button><Settings size={21} />設定</button></nav>
+    <nav className="bottom-nav"><button className={!settingsOpen && filter === 'all' ? 'active' : ''} onClick={() => { setSettingsOpen(false); setFilter('all') }}><Search size={21} />すべて</button><button className={!settingsOpen && filter === 'marked' ? 'active' : ''} onClick={() => { setSettingsOpen(false); setFilter('marked') }}><Star size={21} />マーク</button><button className={settingsOpen ? 'active' : ''} onClick={() => setSettingsOpen(true)}><Settings size={21} />設定</button></nav>
     {notice && <div className="toast"><Check size={20} />{notice}<button onClick={() => setNotice('')} aria-label="閉じる"><X size={18} /></button></div>}
     {draft && <div className="modal-backdrop" role="presentation"><form className="editor" onSubmit={persist}><header><button type="button" className="icon-button" onClick={() => setDraft(null)} aria-label="戻る"><ChevronLeft /></button><h2>{memos.some((memo) => memo.id === draft.id) ? 'メモを直す' : '新しく書く'}</h2><button className="save-button" type="submit">保存</button></header><label>タイトル<input ref={titleRef} value={draft.title} onChange={(event) => setDraft({ ...draft, title: event.target.value })} placeholder="例：田中さん" /></label><button type="button" className="dictation" onClick={dictate}><Mic size={23} /> 話してタイトルを書く</button><label>意味・説明<textarea value={draft.meaning} onChange={(event) => setDraft({ ...draft, meaning: event.target.value })} placeholder="思い出すための説明を書きます" rows={4} /></label><label className="mark-toggle"><input type="checkbox" checked={draft.marked} onChange={(event) => setDraft({ ...draft, marked: event.target.checked })} /><Star fill={draft.marked ? 'currentColor' : 'none'} /> 大事なメモとしてマークする</label>{memos.some((memo) => memo.id === draft.id) && <button type="button" className="delete-button" onClick={() => { void erase(draft); setDraft(null) }}><Trash2 size={21} /> このメモを削除</button>}</form></div>}
+    {settingsOpen && <div className="modal-backdrop settings-backdrop"><section className="settings-panel" role="dialog" aria-modal="true" aria-labelledby="settings-title"><header><button type="button" className="icon-button" onClick={() => setSettingsOpen(false)} aria-label="戻る"><ChevronLeft /></button><h2 id="settings-title">設定</h2><span className="settings-header-spacer" /></header><div className="settings-intro"><h3>データのバックアップ</h3><p>大切なメモをファイルに保存したり、保存したファイルから戻したりできます。</p></div><div className="settings-actions"><button type="button" className="settings-action" onClick={() => void downloadBackup()} disabled={backupUnavailable || backingUp || restoring}><span className="settings-action-icon"><Download size={25} /></span><span><strong>{backingUp ? 'バックアップ中…' : 'バックアップ'}</strong><small>{backupUnavailable ? 'ログイン後に利用できます' : 'すべてのメモをファイルに保存します'}</small></span><ChevronRight className="settings-action-arrow" size={22} /></button><button type="button" className="settings-action" onClick={() => backupFileRef.current?.click()} disabled={backupUnavailable || backingUp || restoring}><span className="settings-action-icon restore"><Upload size={25} /></span><span><strong>{restoring ? '戻しています…' : 'バックアップを戻す'}</strong><small>{backupUnavailable ? 'ログイン後に利用できます' : '現在のメモを、保存した内容に置き換えます'}</small></span><ChevronRight className="settings-action-arrow" size={22} /></button><input ref={backupFileRef} className="visually-hidden" type="file" accept=".json,application/json" onChange={(event) => void restoreBackup(event)} /></div><p className="backup-note">{currentUserEmail ? `${currentUserEmail} で同期しているメモが対象です。` : isCloudConfigured ? 'ログインすると、同期しているメモをバックアップできます。' : 'この端末に保存されているメモが対象です。'}</p></section></div>}
   </main>
 }
 
