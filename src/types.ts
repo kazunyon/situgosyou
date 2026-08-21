@@ -11,4 +11,9 @@ export type Memo = {
 }
 
 export type Filter = 'all' | 'marked'
-export type CategoryNumber = 1 | 2 | 3
+export type CategoryNumber = number
+
+export type MemoCategory = {
+  number: CategoryNumber
+  name: string
+}

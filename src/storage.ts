@@ -24,7 +24,7 @@ type MemoBackup = {
 const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === 'object' && value !== null
 const isValidDate = (value: unknown): value is string => typeof value === 'string' && !Number.isNaN(Date.parse(value))
 const isDisplayNumber = (value: unknown): value is number => Number.isInteger(value) && (value as number) > 0 && (value as number) <= 9999
-const isCategoryNumber = (value: unknown): value is CategoryNumber => value === 1 || value === 2 || value === 3
+const isCategoryNumber = (value: unknown): value is CategoryNumber => Number.isInteger(value) && (value as number) > 0 && (value as number) <= 9999
 
 function isMemoBase(value: unknown): value is Omit<Memo, 'displayNumber' | 'categoryNumber'> {
   if (!isRecord(value)) return false

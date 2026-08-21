@@ -31,7 +31,7 @@
 
 .category-tabs {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(50px, 1fr));
   gap: 8px;
 }
 
@@ -42,13 +42,18 @@
   border-radius: 11px;
   background: #fff;
   color: #514542;
+  overflow: hidden;
+  padding: 0 2px;
+  font-size: 12px;
   font-weight: 800;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   cursor: pointer;
 }
 
 .category-tabs button b,
 .category-picker button b {
-  margin-right: 5px;
+  margin-right: 3px;
   color: #d55848;
 }
 
@@ -105,7 +110,7 @@
 
 .category-picker > div {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(50px, 1fr));
   gap: 8px;
 }
 
