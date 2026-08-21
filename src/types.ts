@@ -9,4 +9,4 @@ export type Memo = {
   updatedAt: string
 }
 
-export type Filter = 'all' | 'marked'
+export type Filter = 'all' | 'marked' | number

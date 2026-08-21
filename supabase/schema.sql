@@ -11,7 +11,7 @@ create table if not exists public.memos (
   updated_at timestamptz not null default now()
 );
 
--- 既存のテーブルにも番号列を追加し、現在の表示順で1、2、3…を割り当てます。
+-- 既存のテーブルにも分類番号列を追加し、初期値として1、2、3…を割り当てます。
 alter table public.memos add column if not exists display_number integer;
 with numbered as (
   select id, row_number() over (partition by user_id order by deleted, updated_at desc, id)::integer as value
