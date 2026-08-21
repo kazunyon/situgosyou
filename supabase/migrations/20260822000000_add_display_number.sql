@@ -1,4 +1,4 @@
--- 既存のメモへ、編集可能な分類番号を追加します。
+-- 既存のメモへ、編集可能な表示番号を追加します。
 alter table public.memos add column if not exists display_number integer;
 
 with numbered as (

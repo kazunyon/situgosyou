@@ -1,18 +1,18 @@
-import type { Memo } from './types'
+import type { CategoryNumber, Memo } from './types'
 import { isCloudConfigured, supabase } from './supabase'
 
 const LOCAL_KEY = 'kotoba-memo-items'
 const BACKUP_FORMAT = 'kotoba-memo-backup'
-const BACKUP_VERSION = 2
+const BACKUP_VERSION = 3
 const demoItems: Memo[] = [
-  { id: 'demo-1', displayNumber: 1, title: 'sudo passwd root', meaning: 'rootのパスワードを変更する', marked: true, deleted: false, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
-  { id: 'demo-2', displayNumber: 2, title: '病院に電話する', meaning: '明日の10時に予約', marked: false, deleted: false, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
-  { id: 'demo-3', displayNumber: 3, title: '田中さん', meaning: 'となりの部屋', marked: false, deleted: false, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() }
+  { id: 'demo-1', displayNumber: 1, categoryNumber: 3, title: 'sudo passwd root', meaning: 'rootのパスワードを変更する', marked: true, deleted: false, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
+  { id: 'demo-2', displayNumber: 2, categoryNumber: 2, title: '病院に電話する', meaning: '明日の10時に予約', marked: false, deleted: false, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
+  { id: 'demo-3', displayNumber: 3, categoryNumber: 1, title: '田中さん', meaning: 'となりの部屋', marked: false, deleted: false, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() }
 ]
 
-type DbMemo = { id: string; display_number?: number | null; title: string; meaning: string; marked: string; deleted: boolean; created_at: string; updated_at: string }
-const fromDb = (row: DbMemo, index: number): Memo => ({ id: row.id, displayNumber: row.display_number ?? index + 1, title: row.title, meaning: row.meaning, marked: row.marked === '★', deleted: row.deleted, createdAt: row.created_at, updatedAt: row.updated_at })
-const toDb = (item: Memo) => ({ id: item.id, display_number: item.displayNumber, title: item.title, meaning: item.meaning, marked: item.marked ? '★' : '', deleted: item.deleted, updated_at: item.updatedAt })
+type DbMemo = { id: string; display_number?: number | null; category_number?: number | null; title: string; meaning: string; marked: string; deleted: boolean; created_at: string; updated_at: string }
+const fromDb = (row: DbMemo, index: number): Memo => ({ id: row.id, displayNumber: row.display_number ?? index + 1, categoryNumber: isCategoryNumber(row.category_number) ? row.category_number : 1, title: row.title, meaning: row.meaning, marked: row.marked === '★', deleted: row.deleted, createdAt: row.created_at, updatedAt: row.updated_at })
+const toDb = (item: Memo) => ({ id: item.id, display_number: item.displayNumber, category_number: item.categoryNumber, title: item.title, meaning: item.meaning, marked: item.marked ? '★' : '', deleted: item.deleted, updated_at: item.updatedAt })
 
 type MemoBackup = {
   format: typeof BACKUP_FORMAT
@@ -23,50 +23,50 @@ type MemoBackup = {
 
 const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === 'object' && value !== null
 const isValidDate = (value: unknown): value is string => typeof value === 'string' && !Number.isNaN(Date.parse(value))
+const isDisplayNumber = (value: unknown): value is number => Number.isInteger(value) && (value as number) > 0 && (value as number) <= 9999
+const isCategoryNumber = (value: unknown): value is CategoryNumber => value === 1 || value === 2 || value === 3
+
+function isMemoBase(value: unknown): value is Omit<Memo, 'displayNumber' | 'categoryNumber'> {
+  if (!isRecord(value)) return false
+  return typeof value.id === 'string'
+    && value.id.length > 0
+    && typeof value.title === 'string'
+    && value.title.length > 0
+    && value.title.length <= 255
+    && typeof value.meaning === 'string'
+    && value.meaning.length <= 2000
+    && typeof value.marked === 'boolean'
+    && typeof value.deleted === 'boolean'
+    && isValidDate(value.createdAt)
+    && isValidDate(value.updatedAt)
+}
 
 function isMemo(value: unknown): value is Memo {
-  if (!isRecord(value)) return false
-  return typeof value.id === 'string'
-    && value.id.length > 0
-    && Number.isInteger(value.displayNumber)
-    && (value.displayNumber as number) > 0
-    && (value.displayNumber as number) <= 9999
-    && typeof value.title === 'string'
-    && value.title.length > 0
-    && value.title.length <= 255
-    && typeof value.meaning === 'string'
-    && value.meaning.length <= 2000
-    && typeof value.marked === 'boolean'
-    && typeof value.deleted === 'boolean'
-    && isValidDate(value.createdAt)
-    && isValidDate(value.updatedAt)
+  return isMemoBase(value) && isDisplayNumber((value as Record<string, unknown>).displayNumber) && isCategoryNumber((value as Record<string, unknown>).categoryNumber)
 }
 
-function isLegacyMemo(value: unknown): value is Omit<Memo, 'displayNumber'> {
-  if (!isRecord(value)) return false
-  return typeof value.id === 'string'
-    && value.id.length > 0
-    && typeof value.title === 'string'
-    && value.title.length > 0
-    && value.title.length <= 255
-    && typeof value.meaning === 'string'
-    && value.meaning.length <= 2000
-    && typeof value.marked === 'boolean'
-    && typeof value.deleted === 'boolean'
-    && isValidDate(value.createdAt)
-    && isValidDate(value.updatedAt)
+function isNumberedMemo(value: unknown): value is Omit<Memo, 'categoryNumber'> {
+  return isMemoBase(value) && isDisplayNumber((value as Record<string, unknown>).displayNumber)
 }
 
-function withDisplayNumbers(items: Array<Memo | Omit<Memo, 'displayNumber'>>): Memo[] {
-  return items.map((item, index) => ({ ...item, displayNumber: 'displayNumber' in item && Number.isInteger(item.displayNumber) && item.displayNumber > 0 && item.displayNumber <= 9999 ? item.displayNumber : index + 1 }))
+const isLegacyMemo = (value: unknown): value is Omit<Memo, 'displayNumber' | 'categoryNumber'> => isMemoBase(value)
+
+type StoredMemo = Memo | Omit<Memo, 'categoryNumber'> | Omit<Memo, 'displayNumber' | 'categoryNumber'>
+
+function withMemoDefaults(items: StoredMemo[]): Memo[] {
+  return items.map((item, index) => ({
+    ...item,
+    displayNumber: 'displayNumber' in item && isDisplayNumber(item.displayNumber) ? item.displayNumber : index + 1,
+    categoryNumber: 'categoryNumber' in item && isCategoryNumber(item.categoryNumber) ? item.categoryNumber : 1
+  }))
 }
 
 function localItems(): Memo[] {
   const saved = localStorage.getItem(LOCAL_KEY)
   if (saved) {
-    const parsed = JSON.parse(saved) as Array<Memo | Omit<Memo, 'displayNumber'>>
-    const normalized = withDisplayNumbers(parsed)
-    if (normalized.some((item, index) => !('displayNumber' in parsed[index]) || parsed[index].displayNumber !== item.displayNumber)) {
+    const parsed = JSON.parse(saved) as StoredMemo[]
+    const normalized = withMemoDefaults(parsed)
+    if (normalized.some((item, index) => !('displayNumber' in parsed[index]) || parsed[index].displayNumber !== item.displayNumber || !('categoryNumber' in parsed[index]) || parsed[index].categoryNumber !== item.categoryNumber)) {
       localStorage.setItem(LOCAL_KEY, JSON.stringify(normalized))
     }
     return normalized
@@ -114,11 +114,11 @@ export function parseBackup(contents: string): Memo[] {
     throw new Error('バックアップファイルを読み取れませんでした。')
   }
 
-  if (!isRecord(value) || value.format !== BACKUP_FORMAT || (value.version !== 1 && value.version !== BACKUP_VERSION) || !isValidDate(value.exportedAt) || !Array.isArray(value.memos)) {
+  if (!isRecord(value) || value.format !== BACKUP_FORMAT || (value.version !== 1 && value.version !== 2 && value.version !== BACKUP_VERSION) || !isValidDate(value.exportedAt) || !Array.isArray(value.memos)) {
     throw new Error('「ことばメモ」のバックアップファイルではありません。')
   }
-  const isLegacyBackup = value.version === 1
-  if (!(isLegacyBackup ? value.memos.every(isLegacyMemo) : value.memos.every(isMemo))) {
+  const isValidMemo = value.version === 1 ? isLegacyMemo : value.version === 2 ? isNumberedMemo : isMemo
+  if (!value.memos.every(isValidMemo)) {
     throw new Error('バックアップファイルの内容が壊れています。')
   }
 
@@ -126,7 +126,7 @@ export function parseBackup(contents: string): Memo[] {
   if (ids.size !== value.memos.length) {
     throw new Error('バックアップファイルに同じメモが重複しています。')
   }
-  return withDisplayNumbers(value.memos as Array<Memo | Omit<Memo, 'displayNumber'>>).map((item) => ({ ...item, deleted: false }))
+  return withMemoDefaults(value.memos as StoredMemo[]).map((item) => ({ ...item, deleted: false }))
 }
 
 export async function replaceMemos(items: Memo[]): Promise<Memo[]> {

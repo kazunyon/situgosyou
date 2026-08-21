@@ -2,16 +2,23 @@ import { ChangeEvent, FormEvent, useEffect, useMemo, useRef, useState } from 're
 import { Check, ChevronLeft, ChevronRight, Download, Edit3, LogIn, Mic, Plus, Search, Settings, Star, Trash2, Upload, X } from 'lucide-react'
 import { isCloudConfigured, supabase } from './supabase'
 import { loadMemos, parseBackup, removeMemo, replaceMemos, saveMemo, serializeBackup } from './storage'
-import type { Filter, Memo } from './types'
+import type { CategoryNumber, Filter, Memo } from './types'
 import './settings.css'
 
-const emptyDraft = (displayNumber: number): Memo => ({ id: crypto.randomUUID(), displayNumber, title: '', meaning: '', marked: false, deleted: false, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() })
+const categoryOptions = [
+  { number: 1 as const, label: '自然' },
+  { number: 2 as const, label: '乗り物' },
+  { number: 3 as const, label: 'AI' }
+]
+const categoryName = (number: CategoryNumber) => categoryOptions.find((option) => option.number === number)?.label ?? ''
+const emptyDraft = (displayNumber: number, categoryNumber: CategoryNumber): Memo => ({ id: crypto.randomUUID(), displayNumber, categoryNumber, title: '', meaning: '', marked: false, deleted: false, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() })
 
 type SpeechWindow = Window & typeof globalThis & { webkitSpeechRecognition?: new () => SpeechRecognition }
 
 function App() {
   const [memos, setMemos] = useState<Memo[]>([])
   const [filter, setFilter] = useState<Filter>('all')
+  const [categoryFilter, setCategoryFilter] = useState<CategoryNumber | null>(null)
   const [query, setQuery] = useState('')
   const [draft, setDraft] = useState<Memo | null>(null)
   const [notice, setNotice] = useState('')
@@ -44,27 +51,24 @@ function App() {
   }, [])
   useEffect(() => { if (draft) setTimeout(() => titleRef.current?.focus(), 100) }, [draft?.id])
 
-  const categoryNumbers = useMemo(() => [...new Set([1, 2, 3, ...memos.filter((memo) => !memo.deleted).map((memo) => memo.displayNumber)])].sort((a, b) => a - b), [memos])
   const displayed = useMemo(() => memos
     .filter((memo) => {
-      const matchesFilter = filter === 'all' ? true : filter === 'marked' ? memo.marked : memo.displayNumber === filter
-      return !memo.deleted && matchesFilter && `${memo.displayNumber} ${memo.title} ${memo.meaning}`.toLowerCase().includes(query.toLowerCase())
+      const matchesFilter = filter === 'all' || memo.marked
+      const matchesCategory = categoryFilter === null || memo.categoryNumber === categoryFilter
+      return !memo.deleted && matchesFilter && matchesCategory && `${memo.displayNumber} ${categoryName(memo.categoryNumber)} ${memo.title} ${memo.meaning}`.toLowerCase().includes(query.toLowerCase())
     })
-    .sort((a, b) => a.displayNumber - b.displayNumber || a.createdAt.localeCompare(b.createdAt)), [filter, memos, query])
+    .sort((a, b) => a.displayNumber - b.displayNumber || a.createdAt.localeCompare(b.createdAt)), [categoryFilter, filter, memos, query])
   const backupUnavailable = isCloudConfigured && !currentUserEmail
 
-  useEffect(() => {
-    if (typeof filter === 'number' && !categoryNumbers.includes(filter)) setFilter('all')
-  }, [categoryNumbers, filter])
-
   const openNew = () => {
-    setDraft(emptyDraft(typeof filter === 'number' ? filter : 1))
+    const nextNumber = memos.reduce((highest, memo) => !memo.deleted ? Math.max(highest, memo.displayNumber) : highest, 0) + 1
+    setDraft(emptyDraft(nextNumber, categoryFilter ?? 1))
   }
   const openEdit = (memo: Memo) => setDraft({ ...memo })
   const persist = async (event: FormEvent) => {
     event.preventDefault()
     if (!draft?.title.trim()) { setNotice('タイトルを書いてください。'); return }
-    if (!Number.isInteger(draft.displayNumber) || draft.displayNumber < 1 || draft.displayNumber > 9999) { setNotice('分類番号は1から9999までの整数で入力してください。'); return }
+    if (!Number.isInteger(draft.displayNumber) || draft.displayNumber < 1 || draft.displayNumber > 9999) { setNotice('表示番号は1から9999までの整数で入力してください。'); return }
     const item = { ...draft, title: draft.title.trim(), meaning: draft.meaning.trim(), updatedAt: new Date().toISOString() }
     try {
       await saveMemo(item)
@@ -153,6 +157,7 @@ function App() {
       const restored = await replaceMemos(imported)
       setMemos(restored)
       setFilter('all')
+      setCategoryFilter(null)
       setQuery('')
       setSettingsOpen(false)
       setNotice(`${restored.length}件のメモを戻しました`)
@@ -169,12 +174,13 @@ function App() {
     <section className="intro"><h2>思い出したいことを、すぐに。</h2><p>ことばでも、文章でも書けます。</p></section>
     <label className="search-box"><Search size={24} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="さがす" aria-label="メモをさがす" /></label>
     <section className="actions"><button className="primary-button" onClick={openNew}><Plus size={28} /> 新しく書く</button><button className="voice-button" onClick={() => { openNew(); setTimeout(dictate, 120) }}><Mic size={25} /> 話して書く</button></section>
-    <nav className="filter-tabs" aria-label="表示するメモ"><button className={filter === 'all' ? 'selected' : ''} onClick={() => setFilter('all')}>すべて</button><button className={filter === 'marked' ? 'selected' : ''} onClick={() => setFilter('marked')}><Star size={18} fill={filter === 'marked' ? 'currentColor' : 'none'} /> マーク</button>{categoryNumbers.map((number) => <button key={number} className={`category-tab ${filter === number ? 'selected' : ''}`} onClick={() => setFilter(number)} aria-label={`分類番号 ${number}`}>{number}</button>)}</nav>
+    <div className="filter-group"><span className="filter-group-label">大分類</span><nav className="filter-tabs" aria-label="全体の表示切り替え"><button className={filter === 'all' ? 'selected' : ''} onClick={() => setFilter('all')}>すべて</button><button className={filter === 'marked' ? 'selected' : ''} onClick={() => setFilter('marked')}><Star size={18} fill={filter === 'marked' ? 'currentColor' : 'none'} /> マーク</button></nav></div>
+    <div className="category-group"><span className="filter-group-label">カテゴリ</span><nav className="category-tabs" aria-label="カテゴリの切り替え">{categoryOptions.map((option) => <button key={option.number} className={categoryFilter === option.number ? 'selected' : ''} onClick={() => setCategoryFilter((current) => current === option.number ? null : option.number)} aria-pressed={categoryFilter === option.number}><b>{option.number}</b>{option.label}</button>)}</nav><small>選択中のカテゴリをもう一度押すと、絞り込みを解除できます。</small></div>
     <section className="memo-list" aria-live="polite">
       {loading ? <p className="status">読み込み中…</p> : displayed.length === 0 ? <p className="status">まだメモがありません。<br />「新しく書く」から追加できます。</p> : displayed.map((memo) => <article className="memo-row" key={memo.id}>
         <button className={`star-button ${memo.marked ? 'marked' : ''}`} onClick={() => void toggleMark(memo)} aria-label={memo.marked ? 'マークを外す' : 'マークする'}><Star fill={memo.marked ? 'currentColor' : 'none'} /></button>
-        <span className="memo-number" aria-label={`分類番号 ${memo.displayNumber}`}>{memo.displayNumber}</span>
-        <button className="memo-content" onClick={() => openEdit(memo)}><strong>{memo.title}</strong>{memo.meaning && <span>{memo.meaning}</span>}</button>
+        <span className="memo-number" aria-label={`表示番号 ${memo.displayNumber}`}>{memo.displayNumber}.</span>
+        <button className="memo-content" onClick={() => openEdit(memo)}><strong>{memo.title}</strong><span className="memo-category">{memo.categoryNumber} {categoryName(memo.categoryNumber)}</span>{memo.meaning && <span>{memo.meaning}</span>}</button>
         <button className="icon-button edit" onClick={() => openEdit(memo)} aria-label="編集"><Edit3 size={22} /></button>
       </article>)}
     </section>
@@ -182,7 +188,7 @@ function App() {
     {isCloudConfigured && (currentUserEmail ? <section className="sync-box sync-status"><Check size={22} /><div><strong>{currentUserEmail} で同期中</strong><span>この人のメモだけを表示しています。</span></div><button type="button" onClick={() => void signOut()}>別の人でログイン</button></section> : sentToEmail ? <section className="sync-box sync-status"><Check size={22} /><div><strong>確認メールを送信しました</strong><span><b>{sentToEmail}</b> のメール内にあるリンクを開いてください。ここで同じメールアドレスを入力し直す必要はありません。</span></div></section> : <form className="sync-box" onSubmit={sendMagicLink}><LogIn size={22} /><div><strong>PCとスマホで同期</strong><span>同じメールアドレスでログインします</span></div><input type="email" value={authEmail} onChange={(event) => setAuthEmail(event.target.value)} placeholder="メールアドレス" required /><button disabled={signingIn}>{signingIn ? '送信中' : 'ログイン'}</button></form>)}
     <nav className="bottom-nav"><button className={!settingsOpen && filter === 'all' ? 'active' : ''} onClick={() => { setSettingsOpen(false); setFilter('all') }}><Search size={21} />すべて</button><button className={!settingsOpen && filter === 'marked' ? 'active' : ''} onClick={() => { setSettingsOpen(false); setFilter('marked') }}><Star size={21} />マーク</button><button className={settingsOpen ? 'active' : ''} onClick={() => setSettingsOpen(true)}><Settings size={21} />設定</button></nav>
     {notice && <div className="toast"><Check size={20} />{notice}<button onClick={() => setNotice('')} aria-label="閉じる"><X size={18} /></button></div>}
-    {draft && <div className="modal-backdrop" role="presentation"><form className="editor" onSubmit={persist}><header><button type="button" className="icon-button" onClick={() => setDraft(null)} aria-label="戻る"><ChevronLeft /></button><h2>{memos.some((memo) => memo.id === draft.id) ? 'メモを直す' : '新しく書く'}</h2><button className="save-button" type="submit">保存</button></header><label>分類番号<input type="number" inputMode="numeric" min="1" max="9999" step="1" value={draft.displayNumber || ''} onChange={(event) => setDraft({ ...draft, displayNumber: event.target.value === '' ? 0 : event.target.valueAsNumber })} placeholder="例：1" /></label><p className="number-help">例：自然は1、乗り物は2、AIは3。あとから別の番号へ変更できます。</p><label>タイトル<input ref={titleRef} value={draft.title} onChange={(event) => setDraft({ ...draft, title: event.target.value })} placeholder="例：田中さん" /></label><button type="button" className="dictation" onClick={dictate}><Mic size={23} /> 話してタイトルを書く</button><label>意味・説明<textarea value={draft.meaning} onChange={(event) => setDraft({ ...draft, meaning: event.target.value })} placeholder="思い出すための説明を書きます" rows={4} /></label><label className="mark-toggle"><input type="checkbox" checked={draft.marked} onChange={(event) => setDraft({ ...draft, marked: event.target.checked })} /><Star fill={draft.marked ? 'currentColor' : 'none'} /> 大事なメモとしてマークする</label>{memos.some((memo) => memo.id === draft.id) && <button type="button" className="delete-button" onClick={() => { void erase(draft); setDraft(null) }}><Trash2 size={21} /> このメモを削除</button>}</form></div>}
+    {draft && <div className="modal-backdrop" role="presentation"><form className="editor" onSubmit={persist}><header><button type="button" className="icon-button" onClick={() => setDraft(null)} aria-label="戻る"><ChevronLeft /></button><h2>{memos.some((memo) => memo.id === draft.id) ? 'メモを直す' : '新しく書く'}</h2><button className="save-button" type="submit">保存</button></header><label>表示番号<input type="number" inputMode="numeric" min="1" max="9999" step="1" value={draft.displayNumber || ''} onChange={(event) => setDraft({ ...draft, displayNumber: event.target.value === '' ? 0 : event.target.valueAsNumber })} placeholder="例：1" /></label><p className="number-help">「すべて」の一覧に表示する番号です。</p><fieldset className="category-picker"><legend>カテゴリ</legend><div>{categoryOptions.map((option) => <button type="button" key={option.number} className={draft.categoryNumber === option.number ? 'selected' : ''} onClick={() => setDraft({ ...draft, categoryNumber: option.number })} aria-pressed={draft.categoryNumber === option.number}><b>{option.number}</b>{option.label}</button>)}</div><p>表示番号とは別に管理され、あとから自由に変更できます。</p></fieldset><label>タイトル<input ref={titleRef} value={draft.title} onChange={(event) => setDraft({ ...draft, title: event.target.value })} placeholder="例：田中さん" /></label><button type="button" className="dictation" onClick={dictate}><Mic size={23} /> 話してタイトルを書く</button><label>意味・説明<textarea value={draft.meaning} onChange={(event) => setDraft({ ...draft, meaning: event.target.value })} placeholder="思い出すための説明を書きます" rows={4} /></label><label className="mark-toggle"><input type="checkbox" checked={draft.marked} onChange={(event) => setDraft({ ...draft, marked: event.target.checked })} /><Star fill={draft.marked ? 'currentColor' : 'none'} /> 大事なメモとしてマークする</label>{memos.some((memo) => memo.id === draft.id) && <button type="button" className="delete-button" onClick={() => { void erase(draft); setDraft(null) }}><Trash2 size={21} /> このメモを削除</button>}</form></div>}
     {settingsOpen && <div className="modal-backdrop settings-backdrop"><section className="settings-panel" role="dialog" aria-modal="true" aria-labelledby="settings-title"><header><button type="button" className="icon-button" onClick={() => setSettingsOpen(false)} aria-label="戻る"><ChevronLeft /></button><h2 id="settings-title">設定</h2><span className="settings-header-spacer" /></header><div className="settings-intro"><h3>データのバックアップ</h3><p>大切なメモをファイルに保存したり、保存したファイルから戻したりできます。</p></div><div className="settings-actions"><button type="button" className="settings-action" onClick={() => void downloadBackup()} disabled={backupUnavailable || backingUp || restoring}><span className="settings-action-icon"><Download size={25} /></span><span><strong>{backingUp ? 'バックアップ中…' : 'バックアップ'}</strong><small>{backupUnavailable ? 'ログイン後に利用できます' : 'すべてのメモをファイルに保存します'}</small></span><ChevronRight className="settings-action-arrow" size={22} /></button><button type="button" className="settings-action" onClick={() => backupFileRef.current?.click()} disabled={backupUnavailable || backingUp || restoring}><span className="settings-action-icon restore"><Upload size={25} /></span><span><strong>{restoring ? '戻しています…' : 'バックアップを戻す'}</strong><small>{backupUnavailable ? 'ログイン後に利用できます' : '現在のメモを、保存した内容に置き換えます'}</small></span><ChevronRight className="settings-action-arrow" size={22} /></button><input ref={backupFileRef} className="visually-hidden" type="file" accept=".json,application/json" onChange={(event) => void restoreBackup(event)} /></div><p className="backup-note">{currentUserEmail ? `${currentUserEmail} で同期しているメモが対象です。` : isCloudConfigured ? 'ログインすると、同期しているメモをバックアップできます。' : 'この端末に保存されているメモが対象です。'}</p></section></div>}
   </main>
 }

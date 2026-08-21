@@ -1,6 +1,7 @@
 export type Memo = {
   id: string
   displayNumber: number
+  categoryNumber: CategoryNumber
   title: string
   meaning: string
   marked: boolean
@@ -9,4 +10,5 @@ export type Memo = {
   updatedAt: string
 }
 
-export type Filter = 'all' | 'marked' | number
+export type Filter = 'all' | 'marked'
+export type CategoryNumber = 1 | 2 | 3
