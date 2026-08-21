@@ -1,0 +1,21 @@
+.memo-row {
+  grid-template-columns: 47px minmax(42px, auto) minmax(0, 1fr) 42px;
+}
+
+.memo-number {
+  align-self: start;
+  min-width: 42px;
+  padding: 20px 4px 17px 0;
+  color: #d55848;
+  font-size: 20px;
+  font-weight: 800;
+  line-height: 1.35;
+  text-align: right;
+}
+
+.number-help {
+  margin: 7px 2px 0;
+  color: #756664;
+  font-size: 14px;
+  line-height: 1.5;
+}
