@@ -259,9 +259,11 @@ function App() {
   const downloadBackup = async () => {
     setBackingUp(true)
     try {
-      const latestMemos = await loadMemos()
+      const [latestMemos, latestCategories] = await Promise.all([loadMemos(), loadCategories()])
       setMemos(latestMemos)
-      const blob = new Blob([serializeBackup(latestMemos)], { type: 'application/json;charset=utf-8' })
+      setCategories(latestCategories)
+      setCategoryDrafts(latestCategories.map((item) => ({ ...item })))
+      const blob = new Blob([serializeBackup(latestMemos, latestCategories)], { type: 'application/json;charset=utf-8' })
       const url = URL.createObjectURL(blob)
       const now = new Date()
       const date = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}${String(now.getDate()).padStart(2, '0')}`
@@ -272,7 +274,7 @@ function App() {
       link.click()
       link.remove()
       setTimeout(() => URL.revokeObjectURL(url), 1000)
-      setNotice(`${latestMemos.length}件のメモをバックアップしました`)
+      setNotice(`${latestMemos.length}件のメモと${latestCategories.length}件のカテゴリをバックアップしました`)
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error)
       setNotice(`バックアップに失敗しました：${message}`)
@@ -288,15 +290,21 @@ function App() {
     setRestoring(true)
     try {
       const imported = parseBackup(await file.text())
-      const confirmed = confirm(`バックアップには${imported.length}件のメモがあります。\n\n現在のメモをすべて置き換えて、バックアップを戻しますか？`)
+      const backupSummary = imported.categories
+        ? `${imported.memos.length}件のメモと${imported.categories.length}件のカテゴリがあります。`
+        : `${imported.memos.length}件のメモがあります。\n古い形式のため、カテゴリ情報は含まれていません。`
+      const confirmed = confirm(`バックアップには${backupSummary}\n\n現在のメモ${imported.categories ? 'とカテゴリ' : ''}を置き換えて、バックアップを戻しますか？`)
       if (!confirmed) return
-      const restored = await replaceMemos(imported)
+      const restoredCategories = imported.categories ? await saveCategories(imported.categories) : categories
+      const restored = await replaceMemos(imported.memos)
       setMemos(restored)
+      setCategories(restoredCategories)
+      setCategoryDrafts(restoredCategories.map((item) => ({ ...item })))
       setFilter('all')
       setCategoryFilter(null)
       setQuery('')
       setSettingsOpen(false)
-      setNotice(`${restored.length}件のメモを戻しました`)
+      setNotice(imported.categories ? `${restored.length}件のメモと${restoredCategories.length}件のカテゴリを戻しました` : `${restored.length}件のメモを戻しました（カテゴリは現在の設定を使用しています）`)
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error)
       setNotice(`バックアップを戻せませんでした：${message}`)
@@ -325,7 +333,7 @@ function App() {
     <nav className="bottom-nav"><button className={!settingsOpen && filter === 'all' ? 'active' : ''} onClick={() => { setSettingsOpen(false); setFilter('all') }}><Search size={21} />すべて</button><button className={!settingsOpen && filter === 'marked' ? 'active' : ''} onClick={() => { setSettingsOpen(false); setFilter('marked') }}><Star size={21} />マーク</button><button className={settingsOpen ? 'active' : ''} onClick={openSettings}><Settings size={21} />設定</button></nav>
     {notice && <div className="toast"><Check size={20} />{notice}<button onClick={() => setNotice('')} aria-label="閉じる"><X size={18} /></button></div>}
     {draft && <div className="modal-backdrop" role="presentation"><form className="editor" onSubmit={persist}><header><button type="button" className="icon-button" onClick={() => setDraft(null)} aria-label="戻る"><ChevronLeft /></button><h2>{memos.some((memo) => memo.id === draft.id) ? 'メモを直す' : '新しく書く'}</h2><button className="save-button" type="submit">保存</button></header><label>表示番号<input type="number" inputMode="numeric" min="1" max="9999" step="1" value={draft.displayNumber || ''} onChange={(event) => setDraft({ ...draft, displayNumber: event.target.value === '' ? 0 : event.target.valueAsNumber })} placeholder="例：1" /></label><p className="number-help">「すべて」の一覧に表示する番号です。</p><fieldset className="category-picker"><legend>カテゴリ</legend><div>{categories.map((category) => <button type="button" key={category.number} className={draft.categoryNumber === category.number ? 'selected' : ''} onClick={() => setDraft({ ...draft, categoryNumber: category.number })} aria-pressed={draft.categoryNumber === category.number} aria-label={`${category.number} ${category.name}`}><b>{category.number}</b>{category.name}</button>)}</div><p>表示番号とは別に管理され、あとから自由に変更できます。</p></fieldset><label>タイトル<input ref={titleRef} value={draft.title} onChange={(event) => setDraft({ ...draft, title: event.target.value })} placeholder="例：田中さん" /></label><button type="button" className="dictation" onClick={dictate}><Mic size={23} /> 話してタイトルを書く</button><label>意味・説明<textarea value={draft.meaning} onChange={(event) => setDraft({ ...draft, meaning: event.target.value })} placeholder="思い出すための説明を書きます" rows={4} /></label><label className="mark-toggle"><input type="checkbox" checked={draft.marked} onChange={(event) => setDraft({ ...draft, marked: event.target.checked })} /><Star fill={draft.marked ? 'currentColor' : 'none'} /> 大事なメモとしてマークする</label>{memos.some((memo) => memo.id === draft.id) && <button type="button" className="delete-button" onClick={() => { void erase(draft); setDraft(null) }}><Trash2 size={21} /> このメモを削除</button>}</form></div>}
-    {settingsOpen && <div className="modal-backdrop settings-backdrop"><section className="settings-panel" role="dialog" aria-modal="true" aria-labelledby="settings-title"><header><button type="button" className="icon-button" onClick={() => setSettingsOpen(false)} aria-label="戻る"><ChevronLeft /></button><h2 id="settings-title">設定</h2><span className="settings-header-spacer" /></header><section className="category-settings"><h3>カテゴリの管理</h3><p>名前の変更や追加ができます。カテゴリは最大{MAX_CATEGORIES}件です。</p><div className="category-master-list">{categoryDrafts.map((category) => <div className="category-master-row" key={category.number}><span>{category.number}</span><input value={category.name} onChange={(event) => setCategoryDrafts((current) => current.map((item) => item.number === category.number ? { ...item, name: event.target.value } : item))} maxLength={20} aria-label={`カテゴリ${category.number}の名前`} /><button type="button" onClick={() => removeCategoryDraft(category.number)} aria-label={`カテゴリ${category.number}を削除`} disabled={savingCategories}><Trash2 size={19} /></button></div>)}</div><div className="category-master-actions"><button type="button" className="category-add-button" onClick={addCategory} disabled={categoryDrafts.length >= MAX_CATEGORIES || savingCategories}><Plus size={19} />カテゴリを追加</button><button type="button" className="category-save-button" onClick={() => void persistCategoryMaster()} disabled={savingCategories}>{savingCategories ? '保存中…' : 'カテゴリを保存'}</button></div></section><div className="settings-intro backup-intro"><h3>データのバックアップ</h3><p>大切なメモをファイルに保存したり、保存したファイルから戻したりできます。</p></div><div className="settings-actions"><button type="button" className="settings-action" onClick={() => void downloadBackup()} disabled={backupUnavailable || backingUp || restoring}><span className="settings-action-icon"><Download size={25} /></span><span><strong>{backingUp ? 'バックアップ中…' : 'バックアップ'}</strong><small>{backupUnavailable ? 'ログイン後に利用できます' : 'すべてのメモをファイルに保存します'}</small></span><ChevronRight className="settings-action-arrow" size={22} /></button><button type="button" className="settings-action" onClick={() => backupFileRef.current?.click()} disabled={backupUnavailable || backingUp || restoring}><span className="settings-action-icon restore"><Upload size={25} /></span><span><strong>{restoring ? '戻しています…' : 'バックアップを戻す'}</strong><small>{backupUnavailable ? 'ログイン後に利用できます' : '現在のメモを、保存した内容に置き換えます'}</small></span><ChevronRight className="settings-action-arrow" size={22} /></button><input ref={backupFileRef} className="visually-hidden" type="file" accept=".json,application/json" onChange={(event) => void restoreBackup(event)} /></div><p className="backup-note">{currentUserEmail ? `${currentUserEmail} で同期しているメモが対象です。` : isCloudConfigured ? 'ログインすると、同期しているメモをバックアップできます。' : 'この端末に保存されているメモが対象です。'}</p></section></div>}
+    {settingsOpen && <div className="modal-backdrop settings-backdrop"><section className="settings-panel" role="dialog" aria-modal="true" aria-labelledby="settings-title"><header><button type="button" className="icon-button" onClick={() => setSettingsOpen(false)} aria-label="戻る"><ChevronLeft /></button><h2 id="settings-title">設定</h2><span className="settings-header-spacer" /></header><section className="category-settings"><h3>カテゴリの管理</h3><p>名前の変更や追加ができます。カテゴリは最大{MAX_CATEGORIES}件です。</p><div className="category-master-list">{categoryDrafts.map((category) => <div className="category-master-row" key={category.number}><span>{category.number}</span><input value={category.name} onChange={(event) => setCategoryDrafts((current) => current.map((item) => item.number === category.number ? { ...item, name: event.target.value } : item))} maxLength={20} aria-label={`カテゴリ${category.number}の名前`} /><button type="button" onClick={() => removeCategoryDraft(category.number)} aria-label={`カテゴリ${category.number}を削除`} disabled={savingCategories}><Trash2 size={19} /></button></div>)}</div><div className="category-master-actions"><button type="button" className="category-add-button" onClick={addCategory} disabled={categoryDrafts.length >= MAX_CATEGORIES || savingCategories}><Plus size={19} />カテゴリを追加</button><button type="button" className="category-save-button" onClick={() => void persistCategoryMaster()} disabled={savingCategories}>{savingCategories ? '保存中…' : 'カテゴリを保存'}</button></div></section><div className="settings-intro backup-intro"><h3>データのバックアップ</h3><p>大切なメモとカテゴリをファイルに保存したり、保存したファイルから戻したりできます。</p></div><div className="settings-actions"><button type="button" className="settings-action" onClick={() => void downloadBackup()} disabled={backupUnavailable || backingUp || restoring}><span className="settings-action-icon"><Download size={25} /></span><span><strong>{backingUp ? 'バックアップ中…' : 'バックアップ'}</strong><small>{backupUnavailable ? 'ログイン後に利用できます' : 'すべてのメモとカテゴリを保存します'}</small></span><ChevronRight className="settings-action-arrow" size={22} /></button><button type="button" className="settings-action" onClick={() => backupFileRef.current?.click()} disabled={backupUnavailable || backingUp || restoring}><span className="settings-action-icon restore"><Upload size={25} /></span><span><strong>{restoring ? '戻しています…' : 'バックアップを戻す'}</strong><small>{backupUnavailable ? 'ログイン後に利用できます' : '現在のメモとカテゴリを置き換えます'}</small></span><ChevronRight className="settings-action-arrow" size={22} /></button><input ref={backupFileRef} className="visually-hidden" type="file" accept=".json,application/json" onChange={(event) => void restoreBackup(event)} /></div><p className="backup-note">{currentUserEmail ? `${currentUserEmail} で同期しているメモとカテゴリが対象です。` : isCloudConfigured ? 'ログインすると、同期しているメモとカテゴリをバックアップできます。' : 'この端末に保存されているメモとカテゴリが対象です。'}</p></section></div>}
   </main>
 }
 

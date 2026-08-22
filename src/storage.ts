@@ -1,9 +1,10 @@
-import type { CategoryNumber, Memo } from './types'
+import type { CategoryNumber, Memo, MemoCategory } from './types'
 import { isCloudConfigured, supabase } from './supabase'
 
 const LOCAL_KEY = 'kotoba-memo-items'
 const BACKUP_FORMAT = 'kotoba-memo-backup'
-const BACKUP_VERSION = 3
+const BACKUP_VERSION = 4
+const MAX_BACKUP_CATEGORIES = 5
 const demoItems: Memo[] = [
   { id: 'demo-1', displayNumber: 1, categoryNumber: 3, title: 'sudo passwd root', meaning: 'rootのパスワードを変更する', marked: true, deleted: false, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
   { id: 'demo-2', displayNumber: 2, categoryNumber: 2, title: '病院に電話する', meaning: '明日の10時に予約', marked: false, deleted: false, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
@@ -19,12 +20,23 @@ type MemoBackup = {
   version: typeof BACKUP_VERSION
   exportedAt: string
   memos: Memo[]
+  categories: MemoCategory[]
+}
+
+export type ParsedBackup = {
+  memos: Memo[]
+  categories: MemoCategory[] | null
 }
 
 const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === 'object' && value !== null
 const isValidDate = (value: unknown): value is string => typeof value === 'string' && !Number.isNaN(Date.parse(value))
 const isDisplayNumber = (value: unknown): value is number => Number.isInteger(value) && (value as number) > 0 && (value as number) <= 9999
 const isCategoryNumber = (value: unknown): value is CategoryNumber => Number.isInteger(value) && (value as number) > 0 && (value as number) <= 9999
+const isMemoCategory = (value: unknown): value is MemoCategory => isRecord(value)
+  && isCategoryNumber(value.number)
+  && typeof value.name === 'string'
+  && value.name.trim().length > 0
+  && value.name.trim().length <= 20
 
 function isMemoBase(value: unknown): value is Omit<Memo, 'displayNumber' | 'categoryNumber'> {
   if (!isRecord(value)) return false
@@ -96,17 +108,18 @@ export async function removeMemo(item: Memo): Promise<void> {
   await saveMemo({ ...item, deleted: true, updatedAt: new Date().toISOString() })
 }
 
-export function serializeBackup(items: Memo[]): string {
+export function serializeBackup(items: Memo[], categories: MemoCategory[]): string {
   const backup: MemoBackup = {
     format: BACKUP_FORMAT,
     version: BACKUP_VERSION,
     exportedAt: new Date().toISOString(),
-    memos: items.filter((item) => !item.deleted)
+    memos: items.filter((item) => !item.deleted),
+    categories: categories.map((item) => ({ number: item.number, name: item.name.trim() }))
   }
   return JSON.stringify(backup, null, 2)
 }
 
-export function parseBackup(contents: string): Memo[] {
+export function parseBackup(contents: string): ParsedBackup {
   let value: unknown
   try {
     value = JSON.parse(contents)
@@ -114,7 +127,7 @@ export function parseBackup(contents: string): Memo[] {
     throw new Error('バックアップファイルを読み取れませんでした。')
   }
 
-  if (!isRecord(value) || value.format !== BACKUP_FORMAT || (value.version !== 1 && value.version !== 2 && value.version !== BACKUP_VERSION) || !isValidDate(value.exportedAt) || !Array.isArray(value.memos)) {
+  if (!isRecord(value) || value.format !== BACKUP_FORMAT || (value.version !== 1 && value.version !== 2 && value.version !== 3 && value.version !== BACKUP_VERSION) || !isValidDate(value.exportedAt) || !Array.isArray(value.memos)) {
     throw new Error('「ことばメモ」のバックアップファイルではありません。')
   }
   const isValidMemo = value.version === 1 ? isLegacyMemo : value.version === 2 ? isNumberedMemo : isMemo
@@ -126,7 +139,27 @@ export function parseBackup(contents: string): Memo[] {
   if (ids.size !== value.memos.length) {
     throw new Error('バックアップファイルに同じメモが重複しています。')
   }
-  return withMemoDefaults(value.memos as StoredMemo[]).map((item) => ({ ...item, deleted: false }))
+
+  const memos = withMemoDefaults(value.memos as StoredMemo[]).map((item) => ({ ...item, deleted: false }))
+  if (value.version !== BACKUP_VERSION) return { memos, categories: null }
+
+  if (!Array.isArray(value.categories) || value.categories.length < 1 || value.categories.length > MAX_BACKUP_CATEGORIES || !value.categories.every(isMemoCategory)) {
+    throw new Error('バックアップファイルのカテゴリ情報が壊れています。')
+  }
+
+  const categories = value.categories
+    .map((item) => ({ number: item.number, name: item.name.trim() }))
+    .sort((a, b) => a.number - b.number)
+  const categoryNumbers = new Set(categories.map((item) => item.number))
+  const categoryNames = new Set(categories.map((item) => item.name))
+  if (categoryNumbers.size !== categories.length || categoryNames.size !== categories.length) {
+    throw new Error('バックアップファイルに同じカテゴリが重複しています。')
+  }
+  if (memos.some((item) => !categoryNumbers.has(item.categoryNumber))) {
+    throw new Error('バックアップファイルのメモに対応するカテゴリがありません。')
+  }
+
+  return { memos, categories }
 }
 
 export async function replaceMemos(items: Memo[]): Promise<Memo[]> {
