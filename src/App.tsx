@@ -12,6 +12,10 @@ const normalizeOtpCode = (value: string) => value
   .replace(/[０-９]/g, (digit) => String.fromCharCode(digit.charCodeAt(0) - 0xfee0))
   .replace(/\D/g, '')
   .slice(0, 6)
+const errorMessage = (error: unknown) => error instanceof Error
+  ? error.message
+  : (typeof error === 'object' && error && 'message' in error && typeof error.message === 'string' ? error.message : String(error))
+const wait = (milliseconds: number) => new Promise<void>((resolve) => window.setTimeout(resolve, milliseconds))
 
 type SpeechWindow = Window & typeof globalThis & { webkitSpeechRecognition?: new () => SpeechRecognition }
 
@@ -38,15 +42,42 @@ function App() {
   const [savingCategories, setSavingCategories] = useState(false)
   const titleRef = useRef<HTMLInputElement>(null)
   const backupFileRef = useRef<HTMLInputElement>(null)
+  const refreshPromiseRef = useRef<Promise<void> | null>(null)
 
   const refresh = async () => {
-    setLoading(true)
+    if (refreshPromiseRef.current) return refreshPromiseRef.current
+
+    const task = (async () => {
+      setLoading(true)
+      try {
+        for (let attempt = 0; attempt < 2; attempt += 1) {
+          try {
+            const [loadedMemos, loadedCategories] = await Promise.all([loadMemos(), loadCategories()])
+            setMemos(loadedMemos)
+            setCategories(loadedCategories)
+            setCategoryDrafts(loadedCategories.map((item) => ({ ...item })))
+            return
+          } catch (error) {
+            const message = errorMessage(error)
+            if (attempt === 0 && message.toLowerCase().includes('jwt issued at future')) {
+              await wait(1500)
+              continue
+            }
+            setNotice('読み込みに失敗しました：' + message)
+            return
+          }
+        }
+      } finally {
+        setLoading(false)
+      }
+    })()
+
+    refreshPromiseRef.current = task
     try {
-      const [loadedMemos, loadedCategories] = await Promise.all([loadMemos(), loadCategories()])
-      setMemos(loadedMemos)
-      setCategories(loadedCategories)
-      setCategoryDrafts(loadedCategories.map((item) => ({ ...item })))
-    } catch (error) { const message = error instanceof Error ? error.message : (typeof error === 'object' && error && 'message' in error && typeof error.message === 'string' ? error.message : String(error)); setNotice('読み込みに失敗しました：' + message) } finally { setLoading(false) }
+      await task
+    } finally {
+      if (refreshPromiseRef.current === task) refreshPromiseRef.current = null
+    }
   }
 
   useEffect(() => { void refresh() }, [])
@@ -196,7 +227,6 @@ function App() {
       setAuthCode('')
       setResendSeconds(0)
       setNotice('ログインしました。メモを同期します。')
-      await refresh()
     } catch (error) {
       setNotice(`ログインできませんでした。通信を確認して、もう一度お試しください：${error instanceof Error ? error.message : String(error)}`)
     } finally {
