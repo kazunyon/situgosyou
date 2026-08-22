@@ -8,6 +8,10 @@ import './settings.css'
 
 const categoryName = (categories: MemoCategory[], number: CategoryNumber) => categories.find((category) => category.number === number)?.name ?? `カテゴリ${number}`
 const emptyDraft = (displayNumber: number, categoryNumber: CategoryNumber): Memo => ({ id: crypto.randomUUID(), displayNumber, categoryNumber, title: '', meaning: '', marked: false, deleted: false, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() })
+const normalizeOtpCode = (value: string) => value
+  .replace(/[０-９]/g, (digit) => String.fromCharCode(digit.charCodeAt(0) - 0xfee0))
+  .replace(/\D/g, '')
+  .slice(0, 6)
 
 type SpeechWindow = Window & typeof globalThis & { webkitSpeechRecognition?: new () => SpeechRecognition }
 
@@ -22,7 +26,10 @@ function App() {
   const [notice, setNotice] = useState('')
   const [loading, setLoading] = useState(true)
   const [authEmail, setAuthEmail] = useState('')
+  const [authCode, setAuthCode] = useState('')
   const [signingIn, setSigningIn] = useState(false)
+  const [verifyingCode, setVerifyingCode] = useState(false)
+  const [resendSeconds, setResendSeconds] = useState(0)
   const [sentToEmail, setSentToEmail] = useState<string | null>(null)
   const [currentUserEmail, setCurrentUserEmail] = useState<string | null>(null)
   const [settingsOpen, setSettingsOpen] = useState(false)
@@ -57,6 +64,11 @@ function App() {
   useEffect(() => {
     if (categoryFilter !== null && !categories.some((category) => category.number === categoryFilter)) setCategoryFilter(null)
   }, [categories, categoryFilter])
+  useEffect(() => {
+    if (resendSeconds <= 0) return
+    const timer = window.setTimeout(() => setResendSeconds((current) => Math.max(0, current - 1)), 1000)
+    return () => window.clearTimeout(timer)
+  }, [resendSeconds])
 
   const displayed = useMemo(() => memos
     .filter((memo) => {
@@ -138,18 +150,68 @@ function App() {
     recognition.onerror = () => setNotice('音声を聞き取れませんでした。もう一度試してください。')
     recognition.start()
   }
-  const sendMagicLink = async (event: FormEvent) => {
-    event.preventDefault()
+  const requestLoginCode = async (email: string, resent = false) => {
     if (!supabase) return
     setSigningIn(true)
-    const { error } = await supabase.auth.signInWithOtp({
-      email: authEmail,
-      options: { emailRedirectTo: `${window.location.origin}${import.meta.env.BASE_URL}` }
-    })
-    setSigningIn(false)
-    if (error) { setNotice(`ログインメールを送れませんでした：${error.message}`); return }
-    setSentToEmail(authEmail)
-    setNotice('確認メールを送りました。メール内のリンクを開いてください。')
+    try {
+      const { error } = await supabase.auth.signInWithOtp({
+        email,
+        options: { shouldCreateUser: true }
+      })
+      if (error) { setNotice(`確認コードを送信できませんでした：${error.message}`); return }
+      setAuthEmail(email)
+      setSentToEmail(email)
+      setAuthCode('')
+      setResendSeconds(60)
+      setNotice(resent ? '新しい6桁の確認コードを送信しました。' : 'メールに6桁の確認コードを送信しました。')
+    } catch (error) {
+      setNotice(`確認コードを送信できませんでした。通信を確認してください：${error instanceof Error ? error.message : String(error)}`)
+    } finally {
+      setSigningIn(false)
+    }
+  }
+  const sendLoginCode = async (event: FormEvent) => {
+    event.preventDefault()
+    const email = authEmail.trim().toLowerCase()
+    if (!email) { setNotice('メールアドレスを入力してください。'); return }
+    await requestLoginCode(email)
+  }
+  const verifyLoginCode = async (event: FormEvent) => {
+    event.preventDefault()
+    if (!supabase || !sentToEmail) return
+    if (!/^\d{6}$/.test(authCode)) { setNotice('メールに届いた6桁の確認コードを入力してください。'); return }
+    setVerifyingCode(true)
+    try {
+      const { data, error } = await supabase.auth.verifyOtp({
+        email: sentToEmail,
+        token: authCode,
+        type: 'email'
+      })
+      if (error) {
+        setNotice(`ログインできませんでした。コードが正しいか、有効期限内か確認してください：${error.message}`)
+        return
+      }
+      setCurrentUserEmail(data.user?.email ?? sentToEmail)
+      setSentToEmail(null)
+      setAuthCode('')
+      setResendSeconds(0)
+      setNotice('ログインしました。メモを同期します。')
+      await refresh()
+    } catch (error) {
+      setNotice(`ログインできませんでした。通信を確認して、もう一度お試しください：${error instanceof Error ? error.message : String(error)}`)
+    } finally {
+      setVerifyingCode(false)
+    }
+  }
+  const resendLoginCode = async () => {
+    if (!sentToEmail || resendSeconds > 0 || signingIn) return
+    await requestLoginCode(sentToEmail, true)
+  }
+  const changeLoginEmail = () => {
+    setSentToEmail(null)
+    setAuthCode('')
+    setResendSeconds(0)
+    setNotice('メールアドレスを入力し直してください。')
   }
   const signOut = async () => {
     if (!supabase) return
@@ -157,6 +219,8 @@ function App() {
     setCurrentUserEmail(null)
     setSentToEmail(null)
     setAuthEmail('')
+    setAuthCode('')
+    setResendSeconds(0)
     setMemos([])
     setCategories(DEFAULT_CATEGORIES.map((item) => ({ ...item })))
     setCategoryDrafts(DEFAULT_CATEGORIES.map((item) => ({ ...item })))
@@ -227,7 +291,7 @@ function App() {
       </article>)}
     </section>
     {!isCloudConfigured && <section className="local-note"><strong>いまはこの端末だけの試作モードです</strong><span>同期を有効にするには、Supabaseの設定を追加します。</span></section>}
-    {isCloudConfigured && (currentUserEmail ? <section className="sync-box sync-status"><Check size={22} /><div><strong>{currentUserEmail} で同期中</strong><span>この人のメモだけを表示しています。</span></div><button type="button" onClick={() => void signOut()}>別の人でログイン</button></section> : sentToEmail ? <section className="sync-box sync-status"><Check size={22} /><div><strong>確認メールを送信しました</strong><span><b>{sentToEmail}</b> のメール内にあるリンクを開いてください。ここで同じメールアドレスを入力し直す必要はありません。</span></div></section> : <form className="sync-box" onSubmit={sendMagicLink}><LogIn size={22} /><div><strong>PCとスマホで同期</strong><span>同じメールアドレスでログインします</span></div><input type="email" value={authEmail} onChange={(event) => setAuthEmail(event.target.value)} placeholder="メールアドレス" required /><button disabled={signingIn}>{signingIn ? '送信中' : 'ログイン'}</button></form>)}
+    {isCloudConfigured && (currentUserEmail ? <section className="sync-box sync-status"><Check size={22} /><div><strong>{currentUserEmail} で同期中</strong><span>この人のメモだけを表示しています。</span></div><button type="button" onClick={() => void signOut()}>別の人でログイン</button></section> : sentToEmail ? <form className="sync-box otp-box" onSubmit={verifyLoginCode}><Check size={22} /><div><strong>確認コードを入力</strong><span><b>{sentToEmail}</b> に届いた6桁の数字を入力してください。</span></div><label className="otp-label" htmlFor="login-code">6桁の確認コード</label><input id="login-code" className="otp-input" type="text" inputMode="numeric" autoComplete="one-time-code" enterKeyHint="done" pattern="[0-9]{6}" value={authCode} onChange={(event) => setAuthCode(normalizeOtpCode(event.target.value))} placeholder="123456" autoFocus required /><p className="otp-help">メールのリンクは開かず、表示されている6桁の数字をこの画面へ入力します。</p><button className="otp-submit" disabled={verifyingCode || authCode.length !== 6}>{verifyingCode ? '確認中…' : 'コードを確認してログイン'}</button><div className="otp-actions"><button type="button" onClick={() => void resendLoginCode()} disabled={signingIn || resendSeconds > 0}>{signingIn ? '送信中…' : resendSeconds > 0 ? `再送まで ${resendSeconds}秒` : 'コードを再送する'}</button><button type="button" onClick={changeLoginEmail} disabled={signingIn || verifyingCode}>メールアドレスを変更</button></div></form> : <form className="sync-box" onSubmit={sendLoginCode}><LogIn size={22} /><div><strong>PCとスマホで同期</strong><span>メールに届く6桁のコードでログインします</span></div><input type="email" value={authEmail} onChange={(event) => setAuthEmail(event.target.value)} autoComplete="email" inputMode="email" placeholder="メールアドレス" required /><button disabled={signingIn}>{signingIn ? '送信中…' : '6桁のコードを送る'}</button></form>)}
     <nav className="bottom-nav"><button className={!settingsOpen && filter === 'all' ? 'active' : ''} onClick={() => { setSettingsOpen(false); setFilter('all') }}><Search size={21} />すべて</button><button className={!settingsOpen && filter === 'marked' ? 'active' : ''} onClick={() => { setSettingsOpen(false); setFilter('marked') }}><Star size={21} />マーク</button><button className={settingsOpen ? 'active' : ''} onClick={openSettings}><Settings size={21} />設定</button></nav>
     {notice && <div className="toast"><Check size={20} />{notice}<button onClick={() => setNotice('')} aria-label="閉じる"><X size={18} /></button></div>}
     {draft && <div className="modal-backdrop" role="presentation"><form className="editor" onSubmit={persist}><header><button type="button" className="icon-button" onClick={() => setDraft(null)} aria-label="戻る"><ChevronLeft /></button><h2>{memos.some((memo) => memo.id === draft.id) ? 'メモを直す' : '新しく書く'}</h2><button className="save-button" type="submit">保存</button></header><label>表示番号<input type="number" inputMode="numeric" min="1" max="9999" step="1" value={draft.displayNumber || ''} onChange={(event) => setDraft({ ...draft, displayNumber: event.target.value === '' ? 0 : event.target.valueAsNumber })} placeholder="例：1" /></label><p className="number-help">「すべて」の一覧に表示する番号です。</p><fieldset className="category-picker"><legend>カテゴリ</legend><div>{categories.map((category) => <button type="button" key={category.number} className={draft.categoryNumber === category.number ? 'selected' : ''} onClick={() => setDraft({ ...draft, categoryNumber: category.number })} aria-pressed={draft.categoryNumber === category.number} aria-label={`${category.number} ${category.name}`}><b>{category.number}</b>{category.name}</button>)}</div><p>表示番号とは別に管理され、あとから自由に変更できます。</p></fieldset><label>タイトル<input ref={titleRef} value={draft.title} onChange={(event) => setDraft({ ...draft, title: event.target.value })} placeholder="例：田中さん" /></label><button type="button" className="dictation" onClick={dictate}><Mic size={23} /> 話してタイトルを書く</button><label>意味・説明<textarea value={draft.meaning} onChange={(event) => setDraft({ ...draft, meaning: event.target.value })} placeholder="思い出すための説明を書きます" rows={4} /></label><label className="mark-toggle"><input type="checkbox" checked={draft.marked} onChange={(event) => setDraft({ ...draft, marked: event.target.checked })} /><Star fill={draft.marked ? 'currentColor' : 'none'} /> 大事なメモとしてマークする</label>{memos.some((memo) => memo.id === draft.id) && <button type="button" className="delete-button" onClick={() => { void erase(draft); setDraft(null) }}><Trash2 size={21} /> このメモを削除</button>}</form></div>}
