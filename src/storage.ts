@@ -4,7 +4,7 @@ import { isCloudConfigured, supabase } from './supabase'
 const LOCAL_KEY = 'kotoba-memo-items'
 const BACKUP_FORMAT = 'kotoba-memo-backup'
 const BACKUP_VERSION = 4
-const MAX_BACKUP_CATEGORIES = 5
+const MAX_BACKUP_CATEGORIES = 10
 const demoItems: Memo[] = [
   { id: 'demo-1', displayNumber: 1, categoryNumber: 3, title: 'sudo passwd root', meaning: 'rootのパスワードを変更する', marked: true, deleted: false, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
   { id: 'demo-2', displayNumber: 2, categoryNumber: 2, title: '病院に電話する', meaning: '明日の10時に予約', marked: false, deleted: false, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
