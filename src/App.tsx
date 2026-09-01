@@ -324,7 +324,7 @@ function App() {
       {loading ? <p className="status">読み込み中…</p> : displayed.length === 0 ? <p className="status">まだメモがありません。<br />「新しく書く」から追加できます。</p> : displayed.map((memo) => <article className="memo-row" key={memo.id}>
         <button className={`star-button ${memo.marked ? 'marked' : ''}`} onClick={() => void toggleMark(memo)} aria-label={memo.marked ? 'マークを外す' : 'マークする'}><Star fill={memo.marked ? 'currentColor' : 'none'} /></button>
         <span className="memo-number" aria-label={`表示番号 ${memo.displayNumber}`}>{memo.displayNumber}.</span>
-        <button className="memo-content" onClick={() => openEdit(memo)}><strong>{memo.title}</strong><span className="memo-category">{memo.categoryNumber} {categoryName(categories, memo.categoryNumber)}</span>{memo.meaning && <span>{memo.meaning}</span>}</button>
+        <button className="memo-content" onClick={() => openEdit(memo)}><strong>{memo.title}</strong><span className="memo-category">{memo.categoryNumber} {categoryName(categories, memo.categoryNumber)}</span>{memo.meaning && <span className="memo-meaning">{memo.meaning}</span>}</button>
         <button className="icon-button edit" onClick={() => openEdit(memo)} aria-label="編集"><Edit3 size={22} /></button>
       </article>)}
     </section>
