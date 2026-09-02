@@ -1,32 +1,66 @@
 import { ChangeEvent, FormEvent, useEffect, useMemo, useRef, useState } from 'react'
-import { Check, ChevronLeft, ChevronRight, Download, Edit3, LogIn, MessageSquareText, Mic, Plus, Search, Settings, Star, Trash2, Upload, X } from 'lucide-react'
+import { Camera, Check, ChevronLeft, ChevronRight, Download, Edit3, ImagePlus, Laptop, LogIn, MessageSquareText, Mic, Plus, Search, Settings, Star, Trash2, Upload, X } from 'lucide-react'
 import { DEFAULT_CATEGORIES, loadCategories, MAX_CATEGORIES, saveCategories } from './categories'
 import { isCloudConfigured, supabase } from './supabase'
 import { loadMemos, parseBackup, removeMemo, replaceMemos, saveMemo, serializeBackup } from './storage'
-import type { CategoryNumber, Filter, Memo, MemoCategory } from './types'
+import type { CategoryNumber, Filter, GuideStep, Memo, MemoCategory, MemoSection } from './types'
 import './settings.css'
 
+const MAX_GUIDE_STEPS = 10
 const categoryName = (categories: MemoCategory[], number: CategoryNumber) => categories.find((category) => category.number === number)?.name ?? `カテゴリ${number}`
-const emptyDraft = (displayNumber: number, categoryNumber: CategoryNumber): Memo => ({ id: crypto.randomUUID(), displayNumber, categoryNumber, title: '', meaning: '', marked: false, deleted: false, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() })
-const normalizeOtpCode = (value: string) => value
-  .replace(/[０-９]/g, (digit) => String.fromCharCode(digit.charCodeAt(0) - 0xfee0))
-  .replace(/\D/g, '')
-  .slice(0, 6)
-const errorMessage = (error: unknown) => error instanceof Error
-  ? error.message
-  : (typeof error === 'object' && error && 'message' in error && typeof error.message === 'string' ? error.message : String(error))
+const emptyStep = (): GuideStep => ({ id: crypto.randomUUID(), imageDataUrl: '', description: '' })
+const emptyDraft = (section: MemoSection, displayNumber: number, categoryNumber: CategoryNumber): Memo => ({ id: crypto.randomUUID(), section, displayNumber, categoryNumber, title: '', meaning: '', steps: section === 'pc-linux' ? [emptyStep()] : [], marked: false, deleted: false, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() })
+const normalizeOtpCode = (value: string) => value.replace(/[０-９]/g, (digit) => String.fromCharCode(digit.charCodeAt(0) - 0xfee0)).replace(/\D/g, '').slice(0, 6)
+const errorMessage = (error: unknown) => error instanceof Error ? error.message : (typeof error === 'object' && error && 'message' in error && typeof error.message === 'string' ? error.message : String(error))
 const wait = (milliseconds: number) => new Promise<void>((resolve) => window.setTimeout(resolve, milliseconds))
 
 type SpeechWindow = Window & typeof globalThis & { webkitSpeechRecognition?: new () => SpeechRecognition }
+
+const imageToDataUrl = (file: File): Promise<string> => new Promise((resolve, reject) => {
+  if (!file.type.startsWith('image/')) { reject(new Error('画像ファイルを選んでください。')); return }
+  if (file.size > 20 * 1024 * 1024) { reject(new Error('画像は20MB以下のものを選んでください。')); return }
+  const reader = new FileReader()
+  reader.onerror = () => reject(new Error('画像を読み込めませんでした。'))
+  reader.onload = () => {
+    const image = new Image()
+    image.onerror = () => reject(new Error('画像を読み込めませんでした。'))
+    image.onload = () => {
+      const scale = Math.min(1, 1600 / Math.max(image.width, image.height))
+      const canvas = document.createElement('canvas')
+      let width = Math.max(1, Math.round(image.width * scale))
+      let height = Math.max(1, Math.round(image.height * scale))
+      let quality = 0.82
+      let dataUrl = ''
+      for (let attempt = 0; attempt < 6; attempt += 1) {
+        canvas.width = width
+        canvas.height = height
+        const context = canvas.getContext('2d')
+        if (!context) { reject(new Error('画像を処理できませんでした。')); return }
+        context.drawImage(image, 0, 0, width, height)
+        dataUrl = canvas.toDataURL('image/jpeg', quality)
+        if (dataUrl.length <= 320_000) break
+        const reduction = Math.min(0.88, Math.sqrt(320_000 / dataUrl.length) * 0.92)
+        width = Math.max(1, Math.round(width * reduction))
+        height = Math.max(1, Math.round(height * reduction))
+        quality = Math.max(0.62, quality - 0.06)
+      }
+      resolve(dataUrl)
+    }
+    image.src = String(reader.result)
+  }
+  reader.readAsDataURL(file)
+})
 
 function App() {
   const [memos, setMemos] = useState<Memo[]>([])
   const [categories, setCategories] = useState<MemoCategory[]>(DEFAULT_CATEGORIES.map((item) => ({ ...item })))
   const [categoryDrafts, setCategoryDrafts] = useState<MemoCategory[]>(DEFAULT_CATEGORIES.map((item) => ({ ...item })))
+  const [section, setSection] = useState<MemoSection>('daily')
   const [filter, setFilter] = useState<Filter>('all')
   const [categoryFilter, setCategoryFilter] = useState<CategoryNumber | null>(null)
   const [query, setQuery] = useState('')
   const [draft, setDraft] = useState<Memo | null>(null)
+  const [viewingGuide, setViewingGuide] = useState<Memo | null>(null)
   const [notice, setNotice] = useState('')
   const [loading, setLoading] = useState(true)
   const [authEmail, setAuthEmail] = useState('')
@@ -46,7 +80,6 @@ function App() {
 
   const refresh = async () => {
     if (refreshPromiseRef.current) return refreshPromiseRef.current
-
     const task = (async () => {
       setLoading(true)
       try {
@@ -59,25 +92,15 @@ function App() {
             return
           } catch (error) {
             const message = errorMessage(error)
-            if (attempt === 0 && message.toLowerCase().includes('jwt issued at future')) {
-              await wait(1500)
-              continue
-            }
+            if (attempt === 0 && message.toLowerCase().includes('jwt issued at future')) { await wait(1500); continue }
             setNotice('読み込みに失敗しました：' + message)
             return
           }
         }
-      } finally {
-        setLoading(false)
-      }
+      } finally { setLoading(false) }
     })()
-
     refreshPromiseRef.current = task
-    try {
-      await task
-    } finally {
-      if (refreshPromiseRef.current === task) refreshPromiseRef.current = null
-    }
+    try { await task } finally { if (refreshPromiseRef.current === task) refreshPromiseRef.current = null }
   }
 
   useEffect(() => { void refresh() }, [])
@@ -85,49 +108,38 @@ function App() {
     if (!supabase) return
     let mounted = true
     void supabase.auth.getSession().then(({ data }) => { if (mounted) setCurrentUserEmail(data.session?.user.email ?? null) })
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-      setCurrentUserEmail(session?.user.email ?? null)
-      if (session) void refresh()
-    })
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => { setCurrentUserEmail(session?.user.email ?? null); if (session) void refresh() })
     return () => { mounted = false; subscription.unsubscribe() }
   }, [])
   useEffect(() => { if (draft) setTimeout(() => titleRef.current?.focus(), 100) }, [draft?.id])
-  useEffect(() => {
-    if (categoryFilter !== null && !categories.some((category) => category.number === categoryFilter)) setCategoryFilter(null)
-  }, [categories, categoryFilter])
-  useEffect(() => {
-    if (resendSeconds <= 0) return
-    const timer = window.setTimeout(() => setResendSeconds((current) => Math.max(0, current - 1)), 1000)
-    return () => window.clearTimeout(timer)
-  }, [resendSeconds])
+  useEffect(() => { if (categoryFilter !== null && !categories.some((category) => category.number === categoryFilter)) setCategoryFilter(null) }, [categories, categoryFilter])
+  useEffect(() => { if (resendSeconds <= 0) return; const timer = window.setTimeout(() => setResendSeconds((current) => Math.max(0, current - 1)), 1000); return () => window.clearTimeout(timer) }, [resendSeconds])
 
-  const displayed = useMemo(() => memos
-    .filter((memo) => {
-      const matchesFilter = filter === 'all' || memo.marked
-      const matchesCategory = categoryFilter === null || memo.categoryNumber === categoryFilter
-      return !memo.deleted && matchesFilter && matchesCategory && `${memo.displayNumber} ${categoryName(categories, memo.categoryNumber)} ${memo.title} ${memo.meaning}`.toLowerCase().includes(query.toLowerCase())
-    })
-    .sort((a, b) => a.displayNumber - b.displayNumber || a.createdAt.localeCompare(b.createdAt)), [categories, categoryFilter, filter, memos, query])
+  const displayed = useMemo(() => memos.filter((memo) => {
+    if (memo.deleted || memo.section !== section) return false
+    const searchText = `${memo.displayNumber} ${memo.title} ${memo.meaning} ${memo.steps.map((step) => step.description).join(' ')}`.toLowerCase()
+    if (!searchText.includes(query.toLowerCase())) return false
+    if (section === 'pc-linux') return true
+    return (filter === 'all' || memo.marked) && (categoryFilter === null || memo.categoryNumber === categoryFilter)
+  }).sort((a, b) => a.displayNumber - b.displayNumber || a.createdAt.localeCompare(b.createdAt)), [categoryFilter, filter, memos, query, section])
   const backupUnavailable = isCloudConfigured && !currentUserEmail
 
+  const changeSection = (next: MemoSection) => { setSection(next); setQuery(''); setSettingsOpen(false); setViewingGuide(null) }
   const openNew = () => {
-    const nextNumber = memos.reduce((highest, memo) => !memo.deleted ? Math.max(highest, memo.displayNumber) : highest, 0) + 1
-    setDraft(emptyDraft(nextNumber, categoryFilter ?? categories[0]?.number ?? 1))
+    const nextNumber = memos.reduce((highest, memo) => !memo.deleted && memo.section === section ? Math.max(highest, memo.displayNumber) : highest, 0) + 1
+    setDraft(emptyDraft(section, nextNumber, categoryFilter ?? categories[0]?.number ?? 1))
   }
-  const openSettings = () => {
-    setCategoryDrafts(categories.map((item) => ({ ...item })))
-    setSettingsOpen(true)
-  }
+  const openEdit = (memo: Memo) => { setViewingGuide(null); setDraft({ ...memo, steps: memo.steps.map((step) => ({ ...step })) }) }
+  const openSettings = () => { setCategoryDrafts(categories.map((item) => ({ ...item }))); setSettingsOpen(true) }
   const addCategory = () => {
     if (categoryDrafts.length >= MAX_CATEGORIES) { setNotice(`カテゴリは最大${MAX_CATEGORIES}件です。`); return }
-    const usedNumbers = new Set(categoryDrafts.map((item) => item.number))
-    let nextNumber = 1
+    const usedNumbers = new Set(categoryDrafts.map((item) => item.number)); let nextNumber = 1
     while (usedNumbers.has(nextNumber)) nextNumber += 1
     setCategoryDrafts((current) => [...current, { number: nextNumber, name: '' }].sort((a, b) => a.number - b.number))
   }
   const removeCategoryDraft = (number: CategoryNumber) => {
     if (categoryDrafts.length <= 1) { setNotice('カテゴリは1件以上必要です。'); return }
-    if (memos.some((memo) => !memo.deleted && memo.categoryNumber === number)) { setNotice(`カテゴリ${number}を使っているメモがあります。先にメモのカテゴリを変更してください。`); return }
+    if (memos.some((memo) => !memo.deleted && memo.section === 'daily' && memo.categoryNumber === number)) { setNotice(`カテゴリ${number}を使っているメモがあります。先にメモのカテゴリを変更してください。`); return }
     setCategoryDrafts((current) => current.filter((item) => item.number !== number))
   }
   const persistCategoryMaster = async () => {
@@ -135,182 +147,65 @@ function App() {
     if (normalized.some((item) => !item.name)) { setNotice('すべてのカテゴリ名を入力してください。'); return }
     if (new Set(normalized.map((item) => item.name)).size !== normalized.length) { setNotice('同じカテゴリ名は登録できません。'); return }
     setSavingCategories(true)
-    try {
-      const saved = await saveCategories(normalized)
-      setCategories(saved)
-      setCategoryDrafts(saved.map((item) => ({ ...item })))
-      setNotice('カテゴリを保存しました')
-    } catch (error) {
-      setNotice(`カテゴリを保存できませんでした：${error instanceof Error ? error.message : String(error)}`)
-    } finally {
-      setSavingCategories(false)
-    }
+    try { const saved = await saveCategories(normalized); setCategories(saved); setCategoryDrafts(saved.map((item) => ({ ...item }))); setNotice('カテゴリを保存しました') }
+    catch (error) { setNotice(`カテゴリを保存できませんでした：${errorMessage(error)}`) }
+    finally { setSavingCategories(false) }
   }
-  const openEdit = (memo: Memo) => setDraft({ ...memo })
   const persist = async (event: FormEvent) => {
     event.preventDefault()
-    if (!draft?.title.trim()) { setNotice('タイトルを書いてください。'); return }
+    if (!draft?.title.trim()) { setNotice(draft?.section === 'pc-linux' ? '操作項目の名前を書いてください。' : 'タイトルを書いてください。'); return }
     if (!Number.isInteger(draft.displayNumber) || draft.displayNumber < 1 || draft.displayNumber > 9999) { setNotice('表示番号は1から9999までの整数で入力してください。'); return }
-    if (!categories.some((category) => category.number === draft.categoryNumber)) { setNotice('登録されているカテゴリを選んでください。'); return }
-    const item = { ...draft, title: draft.title.trim(), meaning: draft.meaning.trim(), updatedAt: new Date().toISOString() }
-    try {
-      await saveMemo(item)
-      setMemos((current) => [item, ...current.filter((memo) => memo.id !== item.id)])
-      setDraft(null)
-      setNotice('保存しました')
-    } catch { setNotice('保存に失敗しました。通信を確認してください。') }
+    if (draft.section === 'daily' && !categories.some((category) => category.number === draft.categoryNumber)) { setNotice('登録されているカテゴリを選んでください。'); return }
+    if (draft.section === 'pc-linux' && (draft.steps.length < 1 || draft.steps.length > MAX_GUIDE_STEPS || draft.steps.some((step) => !step.imageDataUrl || !step.description.trim()))) { setNotice('各手順に画像と説明を入れてください。'); return }
+    const item = { ...draft, title: draft.title.trim(), meaning: draft.meaning.trim(), steps: draft.steps.map((step) => ({ ...step, description: step.description.trim() })), updatedAt: new Date().toISOString() }
+    try { await saveMemo(item); setMemos((current) => [item, ...current.filter((memo) => memo.id !== item.id)]); setDraft(null); setNotice('保存しました') }
+    catch (error) { setNotice(`保存に失敗しました：${errorMessage(error)}`) }
   }
-  const toggleMark = async (memo: Memo) => {
-    const next = { ...memo, marked: !memo.marked, updatedAt: new Date().toISOString() }
-    await saveMemo(next)
-    setMemos((current) => current.map((item) => item.id === next.id ? next : item))
+  const addGuideStep = () => {
+    if (!draft || draft.steps.length >= MAX_GUIDE_STEPS) { setNotice(`手順は最大${MAX_GUIDE_STEPS}件です。`); return }
+    setDraft({ ...draft, steps: [...draft.steps, emptyStep()] })
   }
-  const erase = async (memo: Memo) => {
-    if (!confirm(`「${memo.title}」を削除しますか？`)) return
-    await removeMemo(memo)
-    setMemos((current) => current.filter((item) => item.id !== memo.id))
-    setNotice('削除しました')
+  const updateGuideStep = (index: number, changes: Partial<GuideStep>) => setDraft((current) => current ? { ...current, steps: current.steps.map((step, stepIndex) => stepIndex === index ? { ...step, ...changes } : step) } : current)
+  const removeGuideStep = (index: number) => setDraft((current) => current ? { ...current, steps: current.steps.filter((_, stepIndex) => stepIndex !== index) } : current)
+  const selectStepImage = async (index: number, event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0]; event.target.value = ''; if (!file) return
+    try { updateGuideStep(index, { imageDataUrl: await imageToDataUrl(file) }) }
+    catch (error) { setNotice(errorMessage(error)) }
   }
+  const toggleMark = async (memo: Memo) => { const next = { ...memo, marked: !memo.marked, updatedAt: new Date().toISOString() }; await saveMemo(next); setMemos((current) => current.map((item) => item.id === next.id ? next : item)) }
+  const erase = async (memo: Memo) => { if (!confirm(`「${memo.title}」を削除しますか？`)) return; await removeMemo(memo); setMemos((current) => current.filter((item) => item.id !== memo.id)); setDraft(null); setViewingGuide(null); setNotice('削除しました') }
   const dictate = () => {
     const Recognition = window.SpeechRecognition || (window as SpeechWindow).webkitSpeechRecognition
     if (!Recognition) { setNotice('このブラウザでは音声入力に対応していません。'); return }
-    const recognition = new Recognition()
-    recognition.lang = 'ja-JP'
-    recognition.interimResults = false
+    const recognition = new Recognition(); recognition.lang = 'ja-JP'; recognition.interimResults = false
     recognition.onresult = (event) => setDraft((current) => current ? { ...current, title: `${current.title}${current.title ? ' ' : ''}${event.results[0][0].transcript}` } : current)
-    recognition.onerror = () => setNotice('音声を聞き取れませんでした。もう一度試してください。')
-    recognition.start()
+    recognition.onerror = () => setNotice('音声を聞き取れませんでした。もう一度試してください。'); recognition.start()
   }
+
   const requestLoginCode = async (email: string, resent = false) => {
-    if (!supabase) return
-    setSigningIn(true)
-    try {
-      const { error } = await supabase.auth.signInWithOtp({
-        email,
-        options: { shouldCreateUser: true }
-      })
-      if (error) { setNotice(`確認コードを送信できませんでした：${error.message}`); return }
-      setAuthEmail(email)
-      setSentToEmail(email)
-      setAuthCode('')
-      setResendSeconds(60)
-      setNotice(resent ? '新しい6桁の確認コードを送信しました。' : 'メールに6桁の確認コードを送信しました。')
-    } catch (error) {
-      setNotice(`確認コードを送信できませんでした。通信を確認してください：${error instanceof Error ? error.message : String(error)}`)
-    } finally {
-      setSigningIn(false)
-    }
+    if (!supabase) return; setSigningIn(true)
+    try { const { error } = await supabase.auth.signInWithOtp({ email, options: { shouldCreateUser: true } }); if (error) { setNotice(`確認コードを送信できませんでした：${error.message}`); return }; setAuthEmail(email); setSentToEmail(email); setAuthCode(''); setResendSeconds(60); setNotice(resent ? '新しい6桁の確認コードを送信しました。' : 'メールに6桁の確認コードを送信しました。') }
+    catch (error) { setNotice(`確認コードを送信できませんでした：${errorMessage(error)}`) } finally { setSigningIn(false) }
   }
-  const sendLoginCode = async (event: FormEvent) => {
-    event.preventDefault()
-    const email = authEmail.trim().toLowerCase()
-    if (!email) { setNotice('メールアドレスを入力してください。'); return }
-    await requestLoginCode(email)
-  }
+  const sendLoginCode = async (event: FormEvent) => { event.preventDefault(); const email = authEmail.trim().toLowerCase(); if (!email) { setNotice('メールアドレスを入力してください。'); return }; await requestLoginCode(email) }
   const verifyLoginCode = async (event: FormEvent) => {
-    event.preventDefault()
-    if (!supabase || !sentToEmail) return
+    event.preventDefault(); if (!supabase || !sentToEmail) return
     if (!/^\d{6}$/.test(authCode)) { setNotice('メールに届いた6桁の確認コードを入力してください。'); return }
     setVerifyingCode(true)
-    try {
-      const { data, error } = await supabase.auth.verifyOtp({
-        email: sentToEmail,
-        token: authCode,
-        type: 'email'
-      })
-      if (error) {
-        setNotice(`ログインできませんでした。コードが正しいか、有効期限内か確認してください：${error.message}`)
-        return
-      }
-      setCurrentUserEmail(data.user?.email ?? sentToEmail)
-      setSentToEmail(null)
-      setAuthCode('')
-      setResendSeconds(0)
-      setNotice('ログインしました。メモを同期します。')
-    } catch (error) {
-      setNotice(`ログインできませんでした。通信を確認して、もう一度お試しください：${error instanceof Error ? error.message : String(error)}`)
-    } finally {
-      setVerifyingCode(false)
-    }
+    try { const { data, error } = await supabase.auth.verifyOtp({ email: sentToEmail, token: authCode, type: 'email' }); if (error) { setNotice(`ログインできませんでした：${error.message}`); return }; setCurrentUserEmail(data.user?.email ?? sentToEmail); setSentToEmail(null); setAuthCode(''); setResendSeconds(0); setNotice('ログインしました。メモを同期します。') }
+    catch (error) { setNotice(`ログインできませんでした：${errorMessage(error)}`) } finally { setVerifyingCode(false) }
   }
-  const resendLoginCode = async () => {
-    if (!sentToEmail || resendSeconds > 0 || signingIn) return
-    await requestLoginCode(sentToEmail, true)
-  }
-  const changeLoginEmail = () => {
-    setSentToEmail(null)
-    setAuthCode('')
-    setResendSeconds(0)
-    setNotice('メールアドレスを入力し直してください。')
-  }
-  const signOut = async () => {
-    if (!supabase) return
-    await supabase.auth.signOut()
-    setCurrentUserEmail(null)
-    setSentToEmail(null)
-    setAuthEmail('')
-    setAuthCode('')
-    setResendSeconds(0)
-    setMemos([])
-    setCategories(DEFAULT_CATEGORIES.map((item) => ({ ...item })))
-    setCategoryDrafts(DEFAULT_CATEGORIES.map((item) => ({ ...item })))
-    setNotice('ログアウトしました。別の人のメールアドレスでログインできます。')
-  }
+  const signOut = async () => { if (!supabase) return; await supabase.auth.signOut(); setCurrentUserEmail(null); setSentToEmail(null); setAuthEmail(''); setAuthCode(''); setResendSeconds(0); setMemos([]); setCategories(DEFAULT_CATEGORIES.map((item) => ({ ...item }))); setCategoryDrafts(DEFAULT_CATEGORIES.map((item) => ({ ...item }))); setNotice('ログアウトしました。') }
+
   const downloadBackup = async () => {
     setBackingUp(true)
-    try {
-      const [latestMemos, latestCategories] = await Promise.all([loadMemos(), loadCategories()])
-      setMemos(latestMemos)
-      setCategories(latestCategories)
-      setCategoryDrafts(latestCategories.map((item) => ({ ...item })))
-      const blob = new Blob([serializeBackup(latestMemos, latestCategories)], { type: 'application/json;charset=utf-8' })
-      const url = URL.createObjectURL(blob)
-      const now = new Date()
-      const date = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}${String(now.getDate()).padStart(2, '0')}`
-      const link = document.createElement('a')
-      link.href = url
-      link.download = `ことばメモ_バックアップ_${date}.json`
-      document.body.appendChild(link)
-      link.click()
-      link.remove()
-      setTimeout(() => URL.revokeObjectURL(url), 1000)
-      setNotice(`${latestMemos.length}件のメモと${latestCategories.length}件のカテゴリをバックアップしました`)
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error)
-      setNotice(`バックアップに失敗しました：${message}`)
-    } finally {
-      setBackingUp(false)
-    }
+    try { const [latestMemos, latestCategories] = await Promise.all([loadMemos(), loadCategories()]); setMemos(latestMemos); setCategories(latestCategories); const blob = new Blob([serializeBackup(latestMemos, latestCategories)], { type: 'application/json;charset=utf-8' }); const url = URL.createObjectURL(blob); const now = new Date(); const date = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}${String(now.getDate()).padStart(2, '0')}`; const link = document.createElement('a'); link.href = url; link.download = `ことばメモ_バックアップ_${date}.json`; document.body.appendChild(link); link.click(); link.remove(); setTimeout(() => URL.revokeObjectURL(url), 1000); setNotice(`${latestMemos.length}件をバックアップしました`) }
+    catch (error) { setNotice(`バックアップに失敗しました：${errorMessage(error)}`) } finally { setBackingUp(false) }
   }
   const restoreBackup = async (event: ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0]
-    event.target.value = ''
-    if (!file) return
-
-    setRestoring(true)
-    try {
-      const imported = parseBackup(await file.text())
-      const backupSummary = imported.categories
-        ? `${imported.memos.length}件のメモと${imported.categories.length}件のカテゴリがあります。`
-        : `${imported.memos.length}件のメモがあります。\n古い形式のため、カテゴリ情報は含まれていません。`
-      const confirmed = confirm(`バックアップには${backupSummary}\n\n現在のメモ${imported.categories ? 'とカテゴリ' : ''}を置き換えて、バックアップを戻しますか？`)
-      if (!confirmed) return
-      const restoredCategories = imported.categories ? await saveCategories(imported.categories) : categories
-      const restored = await replaceMemos(imported.memos)
-      setMemos(restored)
-      setCategories(restoredCategories)
-      setCategoryDrafts(restoredCategories.map((item) => ({ ...item })))
-      setFilter('all')
-      setCategoryFilter(null)
-      setQuery('')
-      setSettingsOpen(false)
-      setNotice(imported.categories ? `${restored.length}件のメモと${restoredCategories.length}件のカテゴリを戻しました` : `${restored.length}件のメモを戻しました（カテゴリは現在の設定を使用しています）`)
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error)
-      setNotice(`バックアップを戻せませんでした：${message}`)
-    } finally {
-      setRestoring(false)
-    }
+    const file = event.target.files?.[0]; event.target.value = ''; if (!file) return; setRestoring(true)
+    try { const imported = parseBackup(await file.text()); if (!confirm(`バックアップには${imported.memos.length}件あります。\n現在のデータを置き換えて戻しますか？`)) return; const restoredCategories = imported.categories ? await saveCategories(imported.categories) : categories; const restored = await replaceMemos(imported.memos); setMemos(restored); setCategories(restoredCategories); setCategoryDrafts(restoredCategories.map((item) => ({ ...item }))); setFilter('all'); setCategoryFilter(null); setQuery(''); setSettingsOpen(false); setNotice(`${restored.length}件を戻しました`) }
+    catch (error) { setNotice(`バックアップを戻せませんでした：${errorMessage(error)}`) } finally { setRestoring(false) }
   }
 
   return <main className="app-shell">
@@ -329,11 +224,15 @@ function App() {
       </article>)}
     </section>
     {!isCloudConfigured && <section className="local-note"><strong>いまはこの端末だけの試作モードです</strong><span>同期を有効にするには、Supabaseの設定を追加します。</span></section>}
-    {isCloudConfigured && (currentUserEmail ? <section className="sync-box sync-status"><Check size={22} /><div><strong>{currentUserEmail} で同期中</strong><span>この人のメモだけを表示しています。</span></div><button type="button" onClick={() => void signOut()}>別の人でログイン</button></section> : sentToEmail ? <form className="sync-box otp-box" onSubmit={verifyLoginCode}><Check size={22} /><div><strong>確認コードを入力</strong><span><b>{sentToEmail}</b> に届いた6桁の数字を入力してください。</span></div><label className="otp-label" htmlFor="login-code">6桁の確認コード</label><input id="login-code" className="otp-input" type="text" inputMode="numeric" autoComplete="one-time-code" enterKeyHint="done" pattern="[0-9]{6}" value={authCode} onChange={(event) => setAuthCode(normalizeOtpCode(event.target.value))} placeholder="123456" autoFocus required /><p className="otp-help">メールのリンクは開かず、表示されている6桁の数字をこの画面へ入力します。</p><button className="otp-submit" disabled={verifyingCode || authCode.length !== 6}>{verifyingCode ? '確認中…' : 'コードを確認してログイン'}</button><div className="otp-actions"><button type="button" onClick={() => void resendLoginCode()} disabled={signingIn || resendSeconds > 0}>{signingIn ? '送信中…' : resendSeconds > 0 ? `再送まで ${resendSeconds}秒` : 'コードを再送する'}</button><button type="button" onClick={changeLoginEmail} disabled={signingIn || verifyingCode}>メールアドレスを変更</button></div></form> : <form className="sync-box" onSubmit={sendLoginCode}><LogIn size={22} /><div><strong>PCとスマホで同期</strong><span>メールに届く6桁のコードでログインします</span></div><input type="email" value={authEmail} onChange={(event) => setAuthEmail(event.target.value)} autoComplete="email" inputMode="email" placeholder="メールアドレス" required /><button disabled={signingIn}>{signingIn ? '送信中…' : '6桁のコードを送る'}</button></form>)}
-    <nav className="bottom-nav"><button className={!settingsOpen && filter === 'all' ? 'active' : ''} onClick={() => { setSettingsOpen(false); setFilter('all') }}><Search size={21} />すべて</button><button className={!settingsOpen && filter === 'marked' ? 'active' : ''} onClick={() => { setSettingsOpen(false); setFilter('marked') }}><Star size={21} />マーク</button><button className={settingsOpen ? 'active' : ''} onClick={openSettings}><Settings size={21} />設定</button></nav>
+    {isCloudConfigured && (currentUserEmail ? <section className="sync-box sync-status"><Check size={22} /><div><strong>{currentUserEmail} で同期中</strong><span>この人のデータだけを表示しています。</span></div><button type="button" onClick={() => void signOut()}>別の人でログイン</button></section> : sentToEmail ? <form className="sync-box otp-box" onSubmit={verifyLoginCode}><Check size={22} /><div><strong>確認コードを入力</strong><span><b>{sentToEmail}</b> に届いた6桁の数字を入力してください。</span></div><label className="otp-label" htmlFor="login-code">6桁の確認コード</label><input id="login-code" className="otp-input" type="text" inputMode="numeric" autoComplete="one-time-code" value={authCode} onChange={(event) => setAuthCode(normalizeOtpCode(event.target.value))} placeholder="123456" autoFocus required /><button disabled={verifyingCode || authCode.length !== 6}>{verifyingCode ? '確認中…' : 'コードを確認してログイン'}</button><div className="otp-actions"><button type="button" onClick={() => void requestLoginCode(sentToEmail, true)} disabled={signingIn || resendSeconds > 0}>{resendSeconds > 0 ? `再送まで ${resendSeconds}秒` : 'コードを再送する'}</button><button type="button" onClick={() => { setSentToEmail(null); setAuthCode('') }}>メールアドレスを変更</button></div></form> : <form className="sync-box" onSubmit={sendLoginCode}><LogIn size={22} /><div><strong>PCとスマホで同期</strong><span>メールに届く6桁のコードでログインします</span></div><input type="email" value={authEmail} onChange={(event) => setAuthEmail(event.target.value)} placeholder="メールアドレス" required /><button disabled={signingIn}>{signingIn ? '送信中…' : '6桁のコードを送る'}</button></form>)}
+    <nav className="bottom-nav"><button className={!settingsOpen && section === 'daily' ? 'active' : ''} onClick={() => changeSection('daily')}><MessageSquareText size={21} />日常用</button><button className={!settingsOpen && section === 'pc-linux' ? 'active' : ''} onClick={() => changeSection('pc-linux')}><Laptop size={21} />PC/Linux用</button><button className={settingsOpen ? 'active' : ''} onClick={openSettings}><Settings size={21} />設定</button></nav>
     {notice && <div className="toast"><Check size={20} />{notice}<button onClick={() => setNotice('')} aria-label="閉じる"><X size={18} /></button></div>}
-    {draft && <div className="modal-backdrop" role="presentation"><form className="editor" onSubmit={persist}><header><button type="button" className="icon-button" onClick={() => setDraft(null)} aria-label="戻る"><ChevronLeft /></button><h2>{memos.some((memo) => memo.id === draft.id) ? 'メモを直す' : '新しく書く'}</h2><button className="save-button" type="submit">保存</button></header><label>表示番号<input type="number" inputMode="numeric" min="1" max="9999" step="1" value={draft.displayNumber || ''} onChange={(event) => setDraft({ ...draft, displayNumber: event.target.value === '' ? 0 : event.target.valueAsNumber })} placeholder="例：1" /></label><p className="number-help">「すべて」の一覧に表示する番号です。</p><fieldset className="category-picker"><legend>カテゴリ</legend><div>{categories.map((category) => <button type="button" key={category.number} className={draft.categoryNumber === category.number ? 'selected' : ''} onClick={() => setDraft({ ...draft, categoryNumber: category.number })} aria-pressed={draft.categoryNumber === category.number} aria-label={`${category.number} ${category.name}`}><b>{category.number}</b>{category.name}</button>)}</div><p>表示番号とは別に管理され、あとから自由に変更できます。</p></fieldset><label>タイトル<input ref={titleRef} value={draft.title} onChange={(event) => setDraft({ ...draft, title: event.target.value })} placeholder="例：田中さん" /></label><button type="button" className="dictation" onClick={dictate}><Mic size={23} /> 話してタイトルを書く</button><label>意味・説明<textarea value={draft.meaning} onChange={(event) => setDraft({ ...draft, meaning: event.target.value })} placeholder="思い出すための説明を書きます" rows={4} /></label><label className="mark-toggle"><input type="checkbox" checked={draft.marked} onChange={(event) => setDraft({ ...draft, marked: event.target.checked })} /><Star fill={draft.marked ? 'currentColor' : 'none'} /> 大事なメモとしてマークする</label>{memos.some((memo) => memo.id === draft.id) && <button type="button" className="delete-button" onClick={() => { void erase(draft); setDraft(null) }}><Trash2 size={21} /> このメモを削除</button>}</form></div>}
-    {settingsOpen && <div className="modal-backdrop settings-backdrop"><section className="settings-panel" role="dialog" aria-modal="true" aria-labelledby="settings-title"><header><button type="button" className="icon-button" onClick={() => setSettingsOpen(false)} aria-label="戻る"><ChevronLeft /></button><h2 id="settings-title">設定</h2><span className="settings-header-spacer" /></header><section className="category-settings"><h3>カテゴリの管理</h3><p>名前の変更や追加ができます。カテゴリは最大{MAX_CATEGORIES}件です。</p><div className="category-master-list">{categoryDrafts.map((category) => <div className="category-master-row" key={category.number}><span>{category.number}</span><input value={category.name} onChange={(event) => setCategoryDrafts((current) => current.map((item) => item.number === category.number ? { ...item, name: event.target.value } : item))} maxLength={20} aria-label={`カテゴリ${category.number}の名前`} /><button type="button" onClick={() => removeCategoryDraft(category.number)} aria-label={`カテゴリ${category.number}を削除`} disabled={savingCategories}><Trash2 size={19} /></button></div>)}</div><div className="category-master-actions"><button type="button" className="category-add-button" onClick={addCategory} disabled={categoryDrafts.length >= MAX_CATEGORIES || savingCategories}><Plus size={19} />カテゴリを追加</button><button type="button" className="category-save-button" onClick={() => void persistCategoryMaster()} disabled={savingCategories}>{savingCategories ? '保存中…' : 'カテゴリを保存'}</button></div></section><div className="settings-intro backup-intro"><h3>データのバックアップ</h3><p>大切なメモとカテゴリをファイルに保存したり、保存したファイルから戻したりできます。</p></div><div className="settings-actions"><button type="button" className="settings-action" onClick={() => void downloadBackup()} disabled={backupUnavailable || backingUp || restoring}><span className="settings-action-icon"><Download size={25} /></span><span><strong>{backingUp ? 'バックアップ中…' : 'バックアップ'}</strong><small>{backupUnavailable ? 'ログイン後に利用できます' : 'すべてのメモとカテゴリを保存します'}</small></span><ChevronRight className="settings-action-arrow" size={22} /></button><button type="button" className="settings-action" onClick={() => backupFileRef.current?.click()} disabled={backupUnavailable || backingUp || restoring}><span className="settings-action-icon restore"><Upload size={25} /></span><span><strong>{restoring ? '戻しています…' : 'バックアップを戻す'}</strong><small>{backupUnavailable ? 'ログイン後に利用できます' : '現在のメモとカテゴリを置き換えます'}</small></span><ChevronRight className="settings-action-arrow" size={22} /></button><input ref={backupFileRef} className="visually-hidden" type="file" accept=".json,application/json" onChange={(event) => void restoreBackup(event)} /></div><p className="backup-note">{currentUserEmail ? `${currentUserEmail} で同期しているメモとカテゴリが対象です。` : isCloudConfigured ? 'ログインすると、同期しているメモとカテゴリをバックアップできます。' : 'この端末に保存されているメモとカテゴリが対象です。'}</p></section></div>}
+
+    {viewingGuide && <div className="modal-backdrop"><section className="guide-viewer" role="dialog" aria-modal="true"><header><button className="icon-button" onClick={() => setViewingGuide(null)} aria-label="戻る"><ChevronLeft /></button><span><small>操作項目 {viewingGuide.displayNumber}</small><h2>{viewingGuide.title}</h2></span><button className="icon-button" onClick={() => openEdit(viewingGuide)} aria-label="編集"><Edit3 /></button></header><div className="guide-steps-view">{viewingGuide.steps.map((step, index) => <article key={step.id}><span className="step-badge">手順 {index + 1}</span><img src={step.imageDataUrl} alt={`${viewingGuide.title} 手順${index + 1}`} /><p>{step.description}</p></article>)}</div></section></div>}
+
+    {draft && <div className="modal-backdrop"><form className={`editor ${draft.section === 'pc-linux' ? 'guide-editor' : ''}`} onSubmit={persist}><header><button type="button" className="icon-button" onClick={() => setDraft(null)} aria-label="戻る"><ChevronLeft /></button><h2>{draft.section === 'pc-linux' ? (memos.some((memo) => memo.id === draft.id) ? '操作項目を直す' : '操作項目を追加') : (memos.some((memo) => memo.id === draft.id) ? 'メモを直す' : '新しく書く')}</h2><button className="save-button" type="submit">保存</button></header><label>表示番号<input type="number" inputMode="numeric" min="1" max="9999" step="1" value={draft.displayNumber || ''} onChange={(event) => setDraft({ ...draft, displayNumber: event.target.value === '' ? 0 : event.target.valueAsNumber })} /></label>{draft.section === 'daily' ? <><p className="number-help">「すべて」の一覧に表示する番号です。</p><fieldset className="category-picker"><legend>カテゴリ</legend><div>{categories.map((category) => <button type="button" key={category.number} className={draft.categoryNumber === category.number ? 'selected' : ''} onClick={() => setDraft({ ...draft, categoryNumber: category.number })}><b>{category.number}</b>{category.name}</button>)}</div></fieldset><label>タイトル<input ref={titleRef} value={draft.title} onChange={(event) => setDraft({ ...draft, title: event.target.value })} placeholder="例：田中さん" maxLength={255} /></label><button type="button" className="dictation" onClick={dictate}><Mic size={23} /> 話してタイトルを書く</button><label>意味・説明<textarea value={draft.meaning} onChange={(event) => setDraft({ ...draft, meaning: event.target.value })} placeholder="思い出すための説明を書きます" rows={4} maxLength={2000} /></label><label className="mark-toggle"><input type="checkbox" checked={draft.marked} onChange={(event) => setDraft({ ...draft, marked: event.target.checked })} /><Star fill={draft.marked ? 'currentColor' : 'none'} /> 大事なメモとしてマークする</label></> : <><label>操作項目の名前<input ref={titleRef} value={draft.title} onChange={(event) => setDraft({ ...draft, title: event.target.value })} placeholder="例：ファイルをコピーする" maxLength={255} /></label><div className="guide-step-heading"><div><h3>操作手順</h3><p>画像と説明は、どちらも必須です。</p></div><strong>{draft.steps.length} / {MAX_GUIDE_STEPS}</strong></div><div className="guide-step-editor-list">{draft.steps.map((step, index) => <fieldset className="guide-step-editor" key={step.id}><legend>手順 {index + 1}</legend><label className={`image-picker ${step.imageDataUrl ? 'has-image' : ''}`}>{step.imageDataUrl ? <img src={step.imageDataUrl} alt={`手順${index + 1}のプレビュー`} /> : <span><ImagePlus size={32} /><b>画像を選ぶ</b><small>スクリーンショットや写真</small></span>}<input className="visually-hidden" type="file" accept="image/*" onChange={(event) => void selectStepImage(index, event)} /></label><label>説明<textarea value={step.description} onChange={(event) => updateGuideStep(index, { description: event.target.value })} placeholder="この画面で何をするか書きます" rows={3} maxLength={2000} /></label>{draft.steps.length > 1 && <button type="button" className="remove-step-button" onClick={() => removeGuideStep(index)}><Trash2 size={18} />この手順を削除</button>}</fieldset>)}</div>{draft.steps.length < MAX_GUIDE_STEPS && <button type="button" className="add-step-button" onClick={addGuideStep}><Plus size={21} />次の手順を追加</button>}</>} {memos.some((memo) => memo.id === draft.id) && <button type="button" className="delete-button" onClick={() => void erase(draft)}><Trash2 size={21} /> この{draft.section === 'pc-linux' ? '操作項目' : 'メモ'}を削除</button>}</form></div>}
+
+    {settingsOpen && <div className="modal-backdrop settings-backdrop"><section className="settings-panel" role="dialog" aria-modal="true"><header><button type="button" className="icon-button" onClick={() => setSettingsOpen(false)} aria-label="戻る"><ChevronLeft /></button><h2>設定</h2><span /></header><section className="category-settings"><h3>日常用カテゴリの管理</h3><p>名前の変更や追加ができます。カテゴリは最大{MAX_CATEGORIES}件です。</p><div className="category-master-list">{categoryDrafts.map((category) => <div className="category-master-row" key={category.number}><span>{category.number}</span><input value={category.name} onChange={(event) => setCategoryDrafts((current) => current.map((item) => item.number === category.number ? { ...item, name: event.target.value } : item))} maxLength={20} /><button type="button" onClick={() => removeCategoryDraft(category.number)} disabled={savingCategories} aria-label="カテゴリを削除"><Trash2 size={19} /></button></div>)}</div><div className="category-master-actions"><button type="button" className="category-add-button" onClick={addCategory} disabled={categoryDrafts.length >= MAX_CATEGORIES || savingCategories}><Plus size={19} />カテゴリを追加</button><button type="button" className="category-save-button" onClick={() => void persistCategoryMaster()} disabled={savingCategories}>{savingCategories ? '保存中…' : 'カテゴリを保存'}</button></div></section><div className="settings-intro backup-intro"><h3>データのバックアップ</h3><p>日常用とPC/Linux用を、まとめて保存・復元します。</p></div><div className="settings-actions"><button type="button" className="settings-action" onClick={() => void downloadBackup()} disabled={backupUnavailable || backingUp || restoring}><span className="settings-action-icon"><Download size={25} /></span><span><strong>{backingUp ? 'バックアップ中…' : 'バックアップ'}</strong><small>{backupUnavailable ? 'ログイン後に利用できます' : 'すべてのデータを保存します'}</small></span><ChevronRight size={22} /></button><button type="button" className="settings-action" onClick={() => backupFileRef.current?.click()} disabled={backupUnavailable || backingUp || restoring}><span className="settings-action-icon restore"><Upload size={25} /></span><span><strong>{restoring ? '戻しています…' : 'バックアップを戻す'}</strong><small>{backupUnavailable ? 'ログイン後に利用できます' : '現在のデータを置き換えます'}</small></span><ChevronRight size={22} /></button><input ref={backupFileRef} className="visually-hidden" type="file" accept=".json,application/json" onChange={(event) => void restoreBackup(event)} /></div></section></div>}
   </main>
 }
 
