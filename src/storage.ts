@@ -37,7 +37,7 @@ const isGuideStep = (value: unknown): value is GuideStep => isRecord(value)
   && typeof value.id === 'string'
   && value.id.length > 0
   && typeof value.imageDataUrl === 'string'
-  && /^data:image\/(?:png|jpe?g|webp);base64,/.test(value.imageDataUrl)
+  && (value.imageDataUrl === '' || /^data:image\/(?:png|jpe?g|webp);base64,/.test(value.imageDataUrl))
   && typeof value.description === 'string'
   && value.description.trim().length > 0
   && value.description.length <= 2000
