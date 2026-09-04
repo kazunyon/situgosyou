@@ -311,7 +311,7 @@ Supabase同期モードではログイン後に利用できます。復元は現
 | カテゴリ番号 | `category_number integer` | 表示番号とは独立し、カテゴリマスターの番号を保存します。 |
 | タイトル | `title varchar(255)` | 必須項目です。 |
 | 意味・説明 | `meaning varchar(2000)` | 思い出すための説明です。 |
-| 操作手順 | `steps jsonb` | PC/Linux用の画像＋説明を最大10件保存します。 |
+| 操作手順 | `steps jsonb` | PC/Linux用の画像（任意）＋説明（必須）を最大10件保存します。 |
 | マーク | `marked char(1)` | `★`または空文字です。 |
 | 削除フラグ | `deleted boolean` | 画面から削除した状態を管理します。 |
 | 作成日時 | `created_at timestamptz` | 作成した日時です。 |
