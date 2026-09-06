@@ -3,7 +3,7 @@ import type { MemoCategory } from './types'
 
 const LOCAL_CATEGORY_KEY = 'kotoba-memo-categories'
 
-export const MAX_CATEGORIES = 5
+export const MAX_CATEGORIES = 10
 export const DEFAULT_CATEGORIES: MemoCategory[] = [
   { number: 1, name: '自然' },
   { number: 2, name: '乗り物' },

@@ -2,10 +2,12 @@
 create table if not exists public.memos (
   id uuid primary key default gen_random_uuid(),
   user_id uuid not null references auth.users(id) on delete cascade default auth.uid(),
+  section varchar(20) not null default 'daily' check (section in ('daily', 'pc-linux')),
   display_number integer not null default 1 check (display_number between 1 and 9999),
   category_number integer not null default 1 check (category_number between 1 and 9999),
   title varchar(255) not null,
   meaning varchar(2000) not null default '',
+  steps jsonb not null default '[]'::jsonb check (jsonb_typeof(steps) = 'array' and jsonb_array_length(steps) <= 10),
   marked char(1) not null default '' check (marked in ('', '★')),
   deleted boolean not null default false,
   created_at timestamptz not null default now(),
@@ -45,6 +47,14 @@ create table if not exists public.memo_categories (
   primary key (user_id, number)
 );
 
+-- 日常用とPC/Linux用を分け、PC/Linux用では最大10件の画像＋説明を保存します。
+alter table public.memos add column if not exists section varchar(20) not null default 'daily';
+alter table public.memos drop constraint if exists memos_section_check;
+alter table public.memos add constraint memos_section_check check (section in ('daily', 'pc-linux'));
+alter table public.memos add column if not exists steps jsonb not null default '[]'::jsonb;
+alter table public.memos drop constraint if exists memos_steps_check;
+alter table public.memos add constraint memos_steps_check check (jsonb_typeof(steps) = 'array' and jsonb_array_length(steps) <= 10);
+
 alter table public.memo_categories enable row level security;
 do $$
 begin
@@ -71,3 +81,4 @@ create policy "利用者は自分のメモだけ削除できる" on public.memos
 create index if not exists memos_user_updated_idx on public.memos (user_id, updated_at desc) where deleted = false;
 create index if not exists memos_user_number_idx on public.memos (user_id, display_number, created_at) where deleted = false;
 create index if not exists memos_user_category_idx on public.memos (user_id, category_number, display_number) where deleted = false;
+create index if not exists memos_user_section_idx on public.memos (user_id, section, display_number) where deleted = false;

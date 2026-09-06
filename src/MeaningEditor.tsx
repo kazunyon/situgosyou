@@ -67,7 +67,7 @@ export function MeaningEditor({ title, value, onChange, onApply }: Props) {
     </button>
     <p id="meaning-help" className="meaning-help">タイトルのことばをWikipediaで調べ、約500文字の説明を入力します。</p>
     <label className="visually-hidden" htmlFor="memo-meaning">意味・説明</label>
-    <textarea id="memo-meaning" value={value} onChange={(event) => onChange(event.target.value)} placeholder="説明を直接書くこともできます" rows={6} />
+    <textarea id="memo-meaning" value={value} onChange={(event) => onChange(event.target.value)} placeholder="説明を直接書くこともできます" rows={6} maxLength={2000} />
     <p className="meaning-message" role="status" aria-live="polite">{message}</p>
     {result && <a className="meaning-source" href={result.sourceUrl} target="_blank" rel="noopener noreferrer">出典：Wikipedia「{result.sourceTitle}」</a>}
   </section>
