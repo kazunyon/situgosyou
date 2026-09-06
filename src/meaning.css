@@ -1,4 +1,14 @@
 .meaning-section { margin-top: 12px; }
+.speech-title-action { display: flex; justify-content: flex-end; margin-bottom: 12px; }
+.speech-explanation-action { margin-top: 12px; }
+.speech-button { display: inline-flex; align-items: center; justify-content: center; gap: 8px; min-height: 48px; padding: 10px 16px; border: 2px solid #d8ccca; border-radius: 13px; background: #fff; color: #514542; font-size: 17px; font-weight: 800; cursor: pointer; }
+.speech-button[aria-pressed="true"] { color: #b84b3c; background: #fff0ed; border-color: #e86c5a; }
+.speech-button:disabled, .speech-speed:disabled { opacity: .55; cursor: not-allowed; }
+.speech-button svg { flex-shrink: 0; }
+.speech-speed { display: flex; flex-wrap: wrap; gap: 8px; border: 0; padding: 0; margin: 14px 0 0; }
+.speech-speed legend { padding: 0; margin-bottom: 8px; color: #674841; font-size: 16px; font-weight: 800; }
+.speech-speed button { min-height: 46px; min-width: 96px; padding: 8px 14px; border: 1px solid #d8ccca; border-radius: 11px; background: #fff; color: #514542; font-size: 16px; font-weight: 700; cursor: pointer; }
+.speech-speed button[aria-pressed="true"] { color: #fff; background: #b84b3c; border-color: #b84b3c; }
 .meaning-actions { display: grid; grid-template-columns: minmax(0, 1.65fr) minmax(0, 1fr); gap: 10px; }
 .meaning-actions .dictation, .meaning-actions .meaning-button { min-width: 0; margin-top: 0; white-space: nowrap; }
 .meaning-actions svg { flex-shrink: 0; }
