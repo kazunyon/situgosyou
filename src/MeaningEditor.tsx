@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { Search } from 'lucide-react'
+import { Mic, Search } from 'lucide-react'
 import { lookupMeaning, type MeaningResult } from './meaningLookup'
 import './meaning.css'
 
@@ -8,9 +8,10 @@ type Props = {
   value: string
   onChange: (value: string) => void
   onApply: (value: string) => void
+  onDictate: () => void
 }
 
-export function MeaningEditor({ title, value, onChange, onApply }: Props) {
+export function MeaningEditor({ title, value, onChange, onApply, onDictate }: Props) {
   const [loading, setLoading] = useState(false)
   const [message, setMessage] = useState('')
   const [result, setResult] = useState<MeaningResult | null>(null)
@@ -62,9 +63,12 @@ export function MeaningEditor({ title, value, onChange, onApply }: Props) {
   }
 
   return <section className="meaning-section" aria-label="意味・説明の入力">
-    <button type="button" className="meaning-button" onClick={() => void lookup()} disabled={loading} aria-describedby="meaning-help" aria-controls="memo-meaning">
-      <Search size={22} aria-hidden="true" />{loading ? '取得中…' : '意味・説明'}
-    </button>
+    <div className="meaning-actions">
+      <button type="button" className="dictation" onClick={onDictate}><Mic size={23} aria-hidden="true" />話してタイトルを書く</button>
+      <button type="button" className="meaning-button" onClick={() => void lookup()} disabled={loading} aria-describedby="meaning-help" aria-controls="memo-meaning">
+        <Search size={22} aria-hidden="true" />{loading ? '取得中…' : '意味・説明'}
+      </button>
+    </div>
     <p id="meaning-help" className="meaning-help">タイトルのことばをWikipediaで調べ、約500文字の説明を入力します。</p>
     <label className="visually-hidden" htmlFor="memo-meaning">意味・説明</label>
     <textarea id="memo-meaning" value={value} onChange={(event) => onChange(event.target.value)} placeholder="説明を直接書くこともできます" rows={6} maxLength={2000} />
