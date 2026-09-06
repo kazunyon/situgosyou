@@ -8,6 +8,10 @@
 .meaning-message:empty { display: none; }
 .meaning-source { display: inline-block; color: #325cbb; font-size: 15px; line-height: 1.6; overflow-wrap: anywhere; }
 .editor .meaning-section textarea { margin-top: 10px; }
+.memo-dates { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; margin: 14px 0 0; color: #674841; font-size: 14px; line-height: 1.6; }
+.memo-dates > div { display: flex; align-items: baseline; gap: 8px; white-space: nowrap; }
+.memo-dates dt { font-weight: 800; }
+.memo-dates dd { margin: 0; font-variant-numeric: tabular-nums; }
 @media (max-width: 480px) {
   .meaning-actions { grid-template-columns: auto minmax(0, 1fr); gap: 8px; }
   .meaning-actions .dictation, .meaning-actions .meaning-button { padding: 12px 6px; gap: 4px; font-size: 14px; }
@@ -15,4 +19,6 @@
 }
 @media (max-width: 360px) {
   .meaning-actions .dictation, .meaning-actions .meaning-button { font-size: 12px; }
+  .memo-dates { gap: 8px; font-size: 12px; }
+  .memo-dates > div { gap: 4px; }
 }
