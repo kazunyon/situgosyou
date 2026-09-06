@@ -1,0 +1,52 @@
+/* Daily memo editor: writing, listening, and organization form distinct groups. */
+.editor.daily-editor { width: min(100%, 680px); padding: 0 32px 28px; color: #302725; }
+.editor.daily-editor > header {
+  position: sticky; top: 0; z-index: 2;
+  grid-template-columns: 80px 1fr 80px;
+  margin: 0 -32px 28px; padding: 18px 24px;
+  background: #fff; border-bottom: 1px solid #eee8e4; border-radius: 24px 24px 0 0;
+}
+.editor.daily-editor > header h2 { font-size: 21px; font-weight: 700; }
+.editor.daily-editor > header .icon-button { width: 48px; height: 48px; }
+.editor.daily-editor .save-button { min-height: 48px; border-radius: 10px; background: #b94e3b; font-size: 17px; }
+.editor.daily-editor label:not(.mark-toggle), .editor.daily-editor .category-picker legend { margin-top: 0; font-size: 17px; line-height: 1.5; font-weight: 700; }
+.editor.daily-editor input:not([type=checkbox]), .editor.daily-editor textarea {
+  border: 1px solid #d7ceca; border-radius: 10px; padding: 13px 15px; margin-top: 10px;
+  font-size: 20px; font-weight: 400; line-height: 1.7; background: #fff;
+}
+.editor.daily-editor input::placeholder, .editor.daily-editor textarea::placeholder { color: #8b817d; }
+.editor.daily-editor textarea { line-height: 1.65; }
+.editor.daily-editor input:not([type=checkbox]):focus, .editor.daily-editor textarea:focus { border-color: #b94e3b; outline: 2px solid #f3d8ce; outline-offset: 2px; }
+.editor.daily-editor .memo-organization { margin-top: 28px; padding-top: 24px; border-top: 1px solid #e9e2de; }
+.editor.daily-editor .category-picker { margin: 0; min-width: 0; }
+.editor.daily-editor .category-picker > div { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+.editor.daily-editor .category-picker button {
+  display: flex; align-items: center; gap: 6px; min-height: 48px; padding: 10px 12px;
+  border: 1px solid #ddd5d1; border-radius: 10px; text-align: left;
+  white-space: normal; overflow: visible; overflow-wrap: anywhere;
+  font-size: 15px; font-weight: 500; line-height: 1.5;
+}
+.editor.daily-editor .category-picker button b { flex-shrink: 0; margin: 0; color: #8b7871; font-size: 13px; }
+.editor.daily-editor .category-picker button.selected { border-color: #b94e3b; background: #fff0e9; color: #933b2d; font-weight: 700; }
+.editor.daily-editor .category-picker button.selected b { color: #933b2d; }
+.editor.daily-editor .display-number-field { display: flex; align-items: flex-end; gap: 16px; margin-top: 22px; }
+.editor.daily-editor .display-number-field label { flex: 0 0 116px; }
+.editor.daily-editor .display-number-field input { padding: 8px 12px; }
+.editor.daily-editor .number-help { margin: 0 0 12px; font-size: 14px; }
+.editor.daily-editor .mark-toggle { gap: 10px; margin: 22px 0 0; padding-top: 20px; border-top: 1px solid #e9e2de; font-size: 16px; font-weight: 500; line-height: 1.6; }
+.editor.daily-editor .mark-toggle input { flex-shrink: 0; margin: 0; accent-color: #b94e3b; }
+.editor.daily-editor .mark-toggle svg { flex-shrink: 0; width: 20px; color: #b94e3b; }
+.editor.daily-editor .delete-button { margin-top: 24px; }
+@media (max-width: 699px) {
+  .editor.daily-editor { padding: 0 24px 28px; }
+  .editor.daily-editor > header { top: 0; margin: 0 -24px 24px; padding: calc(12px + env(safe-area-inset-top)) 16px 12px; border-radius: 0; }
+}
+@media (max-width: 480px) {
+  .editor.daily-editor { padding-left: 20px; padding-right: 20px; }
+  .editor.daily-editor > header { margin-left: -20px; margin-right: -20px; grid-template-columns: 64px 1fr 64px; padding-left: 12px; padding-right: 12px; }
+  .editor.daily-editor .category-picker > div { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .editor.daily-editor .category-picker button { padding: 10px; }
+  .editor.daily-editor textarea { font-size: 18px; }
+}
+
+body:has(.daily-editor) { overflow: hidden; }
