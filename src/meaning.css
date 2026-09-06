@@ -1,0 +1,7 @@
+.meaning-section { margin-top: 23px; }
+.meaning-button { display: flex; align-items: center; justify-content: center; gap: 8px; width: 100%; min-height: 54px; padding: 12px 16px; border: 2px solid #e86c5a; border-radius: 13px; background: #e86c5a; color: #fff; font-size: 18px; font-weight: 800; cursor: pointer; }
+.meaning-button:disabled { opacity: .65; cursor: wait; }
+.meaning-help, .meaning-message { margin: 9px 0; color: #674841; font-size: 15px; line-height: 1.6; }
+.meaning-message:empty { display: none; }
+.meaning-source { display: inline-block; color: #325cbb; font-size: 15px; line-height: 1.6; overflow-wrap: anywhere; }
+.editor .meaning-section textarea { margin-top: 10px; }
