@@ -121,3 +121,10 @@
   font-size: 14px;
   line-height: 1.5;
 }
+
+@media (max-width: 480px) {
+  .category-tabs,
+  .category-picker > div {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+}
