@@ -33,7 +33,7 @@ begin
   end if;
 end $$;
 
--- カテゴリは表示番号と分けて管理し、既存のメモは「1 自然」に設定します。
+-- カテゴリは表示番号と分けて管理し、既存のメモはカテゴリ1に設定します。
 alter table public.memos add column if not exists category_number integer not null default 1;
 alter table public.memos drop constraint if exists memos_category_number_check;
 alter table public.memos add constraint memos_category_number_check check (category_number between 1 and 9999);
