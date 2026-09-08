@@ -5,10 +5,21 @@ const LOCAL_CATEGORY_KEY = 'kotoba-memo-categories'
 
 export const MAX_CATEGORIES = 10
 export const DEFAULT_CATEGORIES: MemoCategory[] = [
-  { number: 1, name: '自然' },
-  { number: 2, name: '乗り物' },
-  { number: 3, name: 'AI' }
+  { number: 1, name: '仕事・AI' },
+  { number: 2, name: '名前' },
+  { number: 3, name: '食べ物・飲み物' },
+  { number: 4, name: '片麻痺・失語症' },
+  { number: 5, name: 'ソフトウェア' },
+  { number: 6, name: 'ミュージシャン' },
+  { number: 7, name: '買い物' },
+  { number: 8, name: '生活' }
 ]
+
+const LEGACY_CATEGORY_NAMES = new Map<number, string>([
+  [1, '自然'],
+  [2, '乗り物'],
+  [3, 'AI']
+])
 
 const isCategory = (value: unknown): value is MemoCategory => {
   if (typeof value !== 'object' || value === null) return false
@@ -27,15 +38,39 @@ const normalizedCategories = (items: MemoCategory[]) => items
   .sort((a, b) => a.number - b.number)
   .slice(0, MAX_CATEGORIES)
 
+const sameCategories = (left: MemoCategory[], right: MemoCategory[]) => left.length === right.length
+  && left.every((item, index) => item.number === right[index].number && item.name === right[index].name)
+
+// 旧初期値が残っている端末・アカウントだけを正しいカテゴリへ移行する。
+// 利用者が追加した9・10番は保持する。
+const migrateLegacyCategories = (items: MemoCategory[]): MemoCategory[] => {
+  const hasLegacyValue = items.some((item) => LEGACY_CATEGORY_NAMES.get(item.number) === item.name)
+  if (!hasLegacyValue) return items
+
+  const byNumber = new Map(items.map((item) => [item.number, item]))
+  for (const category of DEFAULT_CATEGORIES) {
+    byNumber.set(category.number, { ...category })
+  }
+  return normalizedCategories([...byNumber.values()])
+}
+
 function localCategories(): MemoCategory[] {
   const saved = localStorage.getItem(LOCAL_CATEGORY_KEY)
   if (!saved) {
     localStorage.setItem(LOCAL_CATEGORY_KEY, JSON.stringify(DEFAULT_CATEGORIES))
     return DEFAULT_CATEGORIES.map((item) => ({ ...item }))
   }
-  const parsed = JSON.parse(saved) as MemoCategory[]
-  const normalized = normalizedCategories(parsed)
-  return normalized.length > 0 ? normalized : DEFAULT_CATEGORIES.map((item) => ({ ...item }))
+  try {
+    const parsed = JSON.parse(saved) as MemoCategory[]
+    const normalized = normalizedCategories(parsed)
+    const migrated = normalized.length > 0 ? migrateLegacyCategories(normalized) : DEFAULT_CATEGORIES.map((item) => ({ ...item }))
+    if (!sameCategories(normalized, migrated)) localStorage.setItem(LOCAL_CATEGORY_KEY, JSON.stringify(migrated))
+    return migrated
+  } catch {
+    const defaults = DEFAULT_CATEGORIES.map((item) => ({ ...item }))
+    localStorage.setItem(LOCAL_CATEGORY_KEY, JSON.stringify(defaults))
+    return defaults
+  }
 }
 
 export async function loadCategories(): Promise<MemoCategory[]> {
@@ -43,7 +78,15 @@ export async function loadCategories(): Promise<MemoCategory[]> {
 
   const { data, error } = await supabase.from('memo_categories').select('number,name').order('number')
   if (error) throw error
-  if (data.length > 0) return normalizedCategories(data as MemoCategory[])
+  if (data.length > 0) {
+    const normalized = normalizedCategories(data as MemoCategory[])
+    const migrated = migrateLegacyCategories(normalized)
+    if (!sameCategories(normalized, migrated)) {
+      const { error: migrationError } = await supabase.from('memo_categories').upsert(migrated, { onConflict: 'user_id,number' })
+      if (migrationError) throw migrationError
+    }
+    return migrated
+  }
 
   const { data: sessionData } = await supabase.auth.getSession()
   if (!sessionData.session) return DEFAULT_CATEGORIES.map((item) => ({ ...item }))
