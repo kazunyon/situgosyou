@@ -13,6 +13,7 @@
 - PC/Linuxの操作項目ごとに、画像＋説明を最大10手順まで登録
 - Snipping Toolで切り取った画像を、ファイル保存せずクリップボードから直接貼り付け
 - 各メモの表示番号とカテゴリを独立して管理
+- 表示番号を保ったまま、一覧の順番を上・下ボタンで変更
 - 最大10件まで追加・名称変更できるカテゴリマスター
 - タイトルと意味・説明の検索
 - 大切なメモへの星マーク
@@ -131,14 +132,15 @@ RLSは重要です。ブラウザで利用するキーが分かっても、ロ�
 
 ### すでにSupabaseを利用している場合
 
-表示番号とカテゴリを追加するため、アプリを公開する前に移行SQLを実行します。既存のメモは削除されません。
+表示番号、カテゴリ、表示順などを追加するため、アプリを公開する前に移行SQLを実行します。既存のメモは削除されません。
 
 1. Supabase Dashboardで対象プロジェクトを開きます。
 2. 左側の **SQL Editor** で **New query** を選びます。
 3. まだ表示番号のSQLを実行していない場合は、[`20260822000000_add_display_number.sql`](supabase/migrations/20260822000000_add_display_number.sql) の内容を貼り付けて **Run** を押します。
 4. 続いて、[`20260822010000_add_category_number.sql`](supabase/migrations/20260822010000_add_category_number.sql) の内容を新しいクエリへ貼り付けて **Run** を押します。
 5. 続いて、[`20260903000000_add_pc_linux_guides.sql`](supabase/migrations/20260903000000_add_pc_linux_guides.sql) の内容を新しいクエリへ貼り付けて **Run** を押します。
-6. エラーが表示されなければ完了です。既存のメモは日常用・カテゴリ1のまま保持され、PC/Linux用の画像付き手順を保存できるようになります。
+6. 続いて、[`20260909045710_add_memo_sort_order.sql`](supabase/migrations/20260909045710_add_memo_sort_order.sql) の内容を新しいクエリへ貼り付けて **Run** を押します。
+7. エラーが表示されなければ完了です。既存のメモの番号と内容を保ったまま、一覧の表示順を変更できるようになります。
 
 ## 4. 6桁の確認コードをメールで送る設定
 
@@ -323,7 +325,8 @@ Supabase同期モードではログイン後に利用できます。復元は現
 | ID | `id uuid` | メモを一意に識別します。 |
 | 利用者 | `user_id uuid` | Supabase Authの利用者IDです。 |
 | 大分類 | `section varchar(20)` | `daily`（日常用）または`pc-linux`（PC/Linux用）です。 |
-| 表示番号 | `display_number integer` | `すべて`の一覧で表示・並び替えに使う1〜9999の番号です。 |
+| 表示番号 | `display_number integer` | 一覧に表示する1〜9999の番号です。 |
+| 表示順 | `sort_order integer` | 表示番号を変えずに一覧の順番を保存します。 |
 | カテゴリ番号 | `category_number integer` | 表示番号とは独立し、カテゴリマスターの番号を保存します。 |
 | タイトル | `title varchar(255)` | 必須項目です。 |
 | 意味・説明 | `meaning varchar(2000)` | 思い出すための説明です。 |

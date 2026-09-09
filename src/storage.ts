@@ -3,17 +3,17 @@ import { isCloudConfigured, supabase } from './supabase'
 
 const LOCAL_KEY = 'kotoba-memo-items'
 const BACKUP_FORMAT = 'kotoba-memo-backup'
-const BACKUP_VERSION = 5
+const BACKUP_VERSION = 6
 const MAX_BACKUP_CATEGORIES = 10
 const demoItems: Memo[] = [
-  { id: 'demo-1', section: 'daily', displayNumber: 1, categoryNumber: 3, title: 'sudo passwd root', meaning: 'rootのパスワードを変更する', steps: [], marked: true, deleted: false, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
-  { id: 'demo-2', section: 'daily', displayNumber: 2, categoryNumber: 2, title: '病院に電話する', meaning: '明日の10時に予約', steps: [], marked: false, deleted: false, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
-  { id: 'demo-3', section: 'daily', displayNumber: 3, categoryNumber: 1, title: '田中さん', meaning: 'となりの部屋', steps: [], marked: false, deleted: false, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() }
+  { id: 'demo-1', section: 'daily', displayNumber: 1, sortOrder: 1, categoryNumber: 3, title: 'sudo passwd root', meaning: 'rootのパスワードを変更する', steps: [], marked: true, deleted: false, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
+  { id: 'demo-2', section: 'daily', displayNumber: 2, sortOrder: 2, categoryNumber: 2, title: '病院に電話する', meaning: '明日の10時に予約', steps: [], marked: false, deleted: false, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
+  { id: 'demo-3', section: 'daily', displayNumber: 3, sortOrder: 3, categoryNumber: 1, title: '田中さん', meaning: 'となりの部屋', steps: [], marked: false, deleted: false, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() }
 ]
 
-type DbMemo = { id: string; section?: string | null; display_number?: number | null; category_number?: number | null; title: string; meaning: string; steps?: unknown; marked: string; deleted: boolean; created_at: string; updated_at: string }
-const fromDb = (row: DbMemo, index: number): Memo => ({ id: row.id, section: isMemoSection(row.section) ? row.section : 'daily', displayNumber: row.display_number ?? index + 1, categoryNumber: isCategoryNumber(row.category_number) ? row.category_number : 1, title: row.title, meaning: row.meaning, steps: Array.isArray(row.steps) && row.steps.every(isGuideStep) ? row.steps : [], marked: row.marked === '★', deleted: row.deleted, createdAt: row.created_at, updatedAt: row.updated_at })
-const toDb = (item: Memo) => ({ id: item.id, section: item.section, display_number: item.displayNumber, category_number: item.categoryNumber, title: item.title, meaning: item.meaning, steps: item.steps, marked: item.marked ? '★' : '', deleted: item.deleted, updated_at: item.updatedAt })
+type DbMemo = { id: string; section?: string | null; display_number?: number | null; sort_order?: number | null; category_number?: number | null; title: string; meaning: string; steps?: unknown; marked: string; deleted: boolean; created_at: string; updated_at: string }
+const fromDb = (row: DbMemo, index: number): Memo => ({ id: row.id, section: isMemoSection(row.section) ? row.section : 'daily', displayNumber: row.display_number ?? index + 1, sortOrder: isSortOrder(row.sort_order) ? row.sort_order : row.display_number ?? index + 1, categoryNumber: isCategoryNumber(row.category_number) ? row.category_number : 1, title: row.title, meaning: row.meaning, steps: Array.isArray(row.steps) && row.steps.every(isGuideStep) ? row.steps : [], marked: row.marked === '★', deleted: row.deleted, createdAt: row.created_at, updatedAt: row.updated_at })
+const toDb = (item: Memo) => ({ id: item.id, section: item.section, display_number: item.displayNumber, sort_order: item.sortOrder, category_number: item.categoryNumber, title: item.title, meaning: item.meaning, steps: item.steps, marked: item.marked ? '★' : '', deleted: item.deleted, updated_at: item.updatedAt })
 
 type MemoBackup = {
   format: typeof BACKUP_FORMAT
@@ -31,6 +31,7 @@ export type ParsedBackup = {
 const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === 'object' && value !== null
 const isValidDate = (value: unknown): value is string => typeof value === 'string' && !Number.isNaN(Date.parse(value))
 const isDisplayNumber = (value: unknown): value is number => Number.isInteger(value) && (value as number) > 0 && (value as number) <= 9999
+const isSortOrder = (value: unknown): value is number => Number.isInteger(value) && (value as number) > 0 && (value as number) <= 2147483647
 const isCategoryNumber = (value: unknown): value is CategoryNumber => Number.isInteger(value) && (value as number) > 0 && (value as number) <= 9999
 const isMemoSection = (value: unknown): value is MemoSection => value === 'daily' || value === 'pc-linux'
 const isGuideStep = (value: unknown): value is GuideStep => isRecord(value)
@@ -47,7 +48,7 @@ const isMemoCategory = (value: unknown): value is MemoCategory => isRecord(value
   && value.name.trim().length > 0
   && value.name.trim().length <= 20
 
-function isMemoBase(value: unknown): value is Omit<Memo, 'displayNumber' | 'categoryNumber'> {
+function isMemoBase(value: unknown): value is Omit<Memo, 'displayNumber' | 'sortOrder' | 'categoryNumber'> {
   if (!isRecord(value)) return false
   return typeof value.id === 'string'
     && value.id.length > 0
@@ -66,25 +67,34 @@ function isMemo(value: unknown): value is Memo {
   return isMemoBase(value)
     && isMemoSection((value as Record<string, unknown>).section)
     && isDisplayNumber((value as Record<string, unknown>).displayNumber)
+    && isSortOrder((value as Record<string, unknown>).sortOrder)
     && isCategoryNumber((value as Record<string, unknown>).categoryNumber)
     && Array.isArray((value as Record<string, unknown>).steps)
     && ((value as Record<string, unknown>).steps as unknown[]).length <= 10
     && ((value as Record<string, unknown>).steps as unknown[]).every(isGuideStep)
 }
 
-function isNumberedMemo(value: unknown): value is Omit<Memo, 'categoryNumber'> {
+function isNumberedMemo(value: unknown): boolean {
   return isMemoBase(value) && isDisplayNumber((value as Record<string, unknown>).displayNumber)
 }
 
-const isLegacyMemo = (value: unknown): value is Omit<Memo, 'displayNumber' | 'categoryNumber'> => isMemoBase(value)
+const isLegacyMemo = (value: unknown): boolean => isMemoBase(value)
+const isMemoWithoutSortOrder = (value: unknown): boolean => isMemoBase(value)
+  && isMemoSection((value as Record<string, unknown>).section)
+  && isDisplayNumber((value as Record<string, unknown>).displayNumber)
+  && isCategoryNumber((value as Record<string, unknown>).categoryNumber)
+  && Array.isArray((value as Record<string, unknown>).steps)
+  && ((value as Record<string, unknown>).steps as unknown[]).length <= 10
+  && ((value as Record<string, unknown>).steps as unknown[]).every(isGuideStep)
 
-type StoredMemo = Memo | (Omit<Memo, 'section' | 'steps'> & { section?: MemoSection; steps?: GuideStep[] }) | Omit<Memo, 'categoryNumber' | 'section' | 'steps'> | Omit<Memo, 'displayNumber' | 'categoryNumber' | 'section' | 'steps'>
+type StoredMemo = Memo | (Omit<Memo, 'sortOrder' | 'section' | 'steps'> & { sortOrder?: number; section?: MemoSection; steps?: GuideStep[] }) | Omit<Memo, 'sortOrder' | 'categoryNumber' | 'section' | 'steps'> | Omit<Memo, 'sortOrder' | 'displayNumber' | 'categoryNumber' | 'section' | 'steps'>
 
 function withMemoDefaults(items: StoredMemo[]): Memo[] {
   return items.map((item, index) => ({
     ...item,
     section: 'section' in item && isMemoSection(item.section) ? item.section : 'daily',
     displayNumber: 'displayNumber' in item && isDisplayNumber(item.displayNumber) ? item.displayNumber : index + 1,
+    sortOrder: 'sortOrder' in item && isSortOrder(item.sortOrder) ? item.sortOrder : ('displayNumber' in item && isDisplayNumber(item.displayNumber) ? item.displayNumber : index + 1),
     categoryNumber: 'categoryNumber' in item && isCategoryNumber(item.categoryNumber) ? item.categoryNumber : 1,
     steps: 'steps' in item && Array.isArray(item.steps) && item.steps.every(isGuideStep) ? item.steps : []
   }))
@@ -95,7 +105,7 @@ function localItems(): Memo[] {
   if (saved) {
     const parsed = JSON.parse(saved) as StoredMemo[]
     const normalized = withMemoDefaults(parsed)
-    if (normalized.some((item, index) => !('section' in parsed[index]) || parsed[index].section !== item.section || !('displayNumber' in parsed[index]) || parsed[index].displayNumber !== item.displayNumber || !('categoryNumber' in parsed[index]) || parsed[index].categoryNumber !== item.categoryNumber || !('steps' in parsed[index]))) {
+    if (normalized.some((item, index) => !('section' in parsed[index]) || parsed[index].section !== item.section || !('displayNumber' in parsed[index]) || parsed[index].displayNumber !== item.displayNumber || !('sortOrder' in parsed[index]) || parsed[index].sortOrder !== item.sortOrder || !('categoryNumber' in parsed[index]) || parsed[index].categoryNumber !== item.categoryNumber || !('steps' in parsed[index]))) {
       localStorage.setItem(LOCAL_KEY, JSON.stringify(normalized))
     }
     return normalized
@@ -106,7 +116,7 @@ function localItems(): Memo[] {
 
 export async function loadMemos(): Promise<Memo[]> {
   if (!isCloudConfigured || !supabase) return localItems()
-  const { data, error } = await supabase.from('memos').select('*').eq('deleted', false).order('updated_at', { ascending: false })
+  const { data, error } = await supabase.from('memos').select('*').eq('deleted', false).order('sort_order').order('display_number')
   if (error) throw error
   return (data as DbMemo[]).map(fromDb)
 }
@@ -118,6 +128,18 @@ export async function saveMemo(item: Memo): Promise<void> {
     return
   }
   const { error } = await supabase.from('memos').upsert(toDb(item))
+  if (error) throw error
+}
+
+export async function saveMemoOrder(items: Memo[]): Promise<void> {
+  if (items.length === 0) return
+  if (!isCloudConfigured || !supabase) {
+    const replacements = new Map(items.map((item) => [item.id, item]))
+    const next = localItems().map((item) => replacements.get(item.id) ?? item)
+    localStorage.setItem(LOCAL_KEY, JSON.stringify(next))
+    return
+  }
+  const { error } = await supabase.from('memos').upsert(items.map(toDb))
   if (error) throw error
 }
 
@@ -145,10 +167,10 @@ export function parseBackup(contents: string): ParsedBackup {
   }
 
   const backupVersion = isRecord(value) && typeof value.version === 'number' ? value.version : 0
-  if (!isRecord(value) || value.format !== BACKUP_FORMAT || ![1, 2, 3, 4, BACKUP_VERSION].includes(backupVersion) || !isValidDate(value.exportedAt) || !Array.isArray(value.memos)) {
+  if (!isRecord(value) || value.format !== BACKUP_FORMAT || ![1, 2, 3, 4, 5, BACKUP_VERSION].includes(backupVersion) || !isValidDate(value.exportedAt) || !Array.isArray(value.memos)) {
     throw new Error('「ことばメモ」のバックアップファイルではありません。')
   }
-  const isValidMemo = backupVersion === 1 ? isLegacyMemo : backupVersion === 2 ? isNumberedMemo : backupVersion < BACKUP_VERSION ? (item: unknown) => isMemoBase(item) && isDisplayNumber((item as Record<string, unknown>).displayNumber) && isCategoryNumber((item as Record<string, unknown>).categoryNumber) : isMemo
+  const isValidMemo = backupVersion === 1 ? isLegacyMemo : backupVersion === 2 ? isNumberedMemo : backupVersion < 5 ? (item: unknown) => isMemoBase(item) && isDisplayNumber((item as Record<string, unknown>).displayNumber) && isCategoryNumber((item as Record<string, unknown>).categoryNumber) : backupVersion === 5 ? isMemoWithoutSortOrder : isMemo
   if (!value.memos.every(isValidMemo)) {
     throw new Error('バックアップファイルの内容が壊れています。')
   }

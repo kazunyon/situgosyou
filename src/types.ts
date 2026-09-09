@@ -2,6 +2,7 @@ export type Memo = {
   id: string
   section: MemoSection
   displayNumber: number
+  sortOrder: number
   categoryNumber: CategoryNumber
   title: string
   meaning: string
