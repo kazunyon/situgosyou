@@ -1,5 +1,5 @@
 import { ChangeEvent, ClipboardEvent as ReactClipboardEvent, FormEvent, useEffect, useMemo, useRef, useState } from 'react'
-import { ArrowDown, ArrowUp, ArrowUpDown, Camera, Check, ChevronLeft, ChevronRight, ClipboardPaste, Download, Edit3, ImagePlus, Laptop, LogIn, MessageSquareText, Mic, Plus, Search, Settings, Star, Trash2, Upload, X } from 'lucide-react'
+import { ArrowDown, ArrowUp, Camera, Check, ChevronLeft, ChevronRight, ClipboardPaste, Download, Edit3, ImagePlus, Laptop, LogIn, MessageSquareText, Mic, Plus, Search, Settings, Star, Trash2, Upload, X } from 'lucide-react'
 import { DEFAULT_CATEGORIES, loadCategories, MAX_CATEGORIES, saveCategories } from './categories'
 import { MeaningEditor } from './MeaningEditor'
 import { isCloudConfigured, supabase } from './supabase'
@@ -76,7 +76,7 @@ function App() {
   const [backingUp, setBackingUp] = useState(false)
   const [restoring, setRestoring] = useState(false)
   const [savingCategories, setSavingCategories] = useState(false)
-  const [reordering, setReordering] = useState(false)
+  const [reorderingMemoId, setReorderingMemoId] = useState<string | null>(null)
   const [movingMemoId, setMovingMemoId] = useState<string | null>(null)
   const titleRef = useRef<HTMLInputElement>(null)
   const backupFileRef = useRef<HTMLInputElement>(null)
@@ -129,7 +129,7 @@ function App() {
   }).sort((a, b) => a.sortOrder - b.sortOrder || a.displayNumber - b.displayNumber || a.createdAt.localeCompare(b.createdAt)), [categoryFilter, filter, memos, query, section])
   const backupUnavailable = isCloudConfigured && !currentUserEmail
 
-  const changeSection = (next: MemoSection) => { setSection(next); setQuery(''); setSettingsOpen(false); setViewingGuide(null); setReordering(false) }
+  const changeSection = (next: MemoSection) => { setSection(next); setQuery(''); setSettingsOpen(false); setViewingGuide(null); setReorderingMemoId(null) }
   const openNew = () => {
     const nextNumber = memos.reduce((highest, memo) => !memo.deleted && memo.section === section ? Math.max(highest, memo.displayNumber) : highest, 0) + 1
     const nextSortOrder = memos.reduce((highest, memo) => !memo.deleted && memo.section === section ? Math.max(highest, memo.sortOrder) : highest, 0) + 1
@@ -214,21 +214,25 @@ function App() {
     void applyStepImage(index, file, true)
   }
   const toggleMark = async (memo: Memo) => { const next = { ...memo, marked: !memo.marked, updatedAt: new Date().toISOString() }; await saveMemo(next); setMemos((current) => current.map((item) => item.id === next.id ? next : item)) }
-  const moveMemo = async (memo: Memo, direction: -1 | 1) => {
+  const moveMemo = async (memo: Memo, destination: 'first' | 'up' | 'down' | 'last') => {
     const visibleIndex = displayed.findIndex((item) => item.id === memo.id)
-    const target = displayed[visibleIndex + direction]
+    const targetVisibleIndex = destination === 'first' ? 0 : destination === 'last' ? displayed.length - 1 : visibleIndex + (destination === 'up' ? -1 : 1)
+    const target = displayed[targetVisibleIndex]
     if (!target || movingMemoId) return
 
     const ordered = memos
       .filter((item) => !item.deleted && item.section === section)
       .sort((a, b) => a.sortOrder - b.sortOrder || a.displayNumber - b.displayNumber || a.createdAt.localeCompare(b.createdAt))
     const sourceIndex = ordered.findIndex((item) => item.id === memo.id)
-    const targetIndex = ordered.findIndex((item) => item.id === target.id)
-    if (sourceIndex < 0 || targetIndex < 0) return
+    if (sourceIndex < 0) return
 
-    const swapped = [...ordered]
-    ;[swapped[sourceIndex], swapped[targetIndex]] = [swapped[targetIndex], swapped[sourceIndex]]
-    const reordered = swapped.map((item, index) => item.sortOrder === index + 1 ? item : { ...item, sortOrder: index + 1 })
+    const moved = [...ordered]
+    const [source] = moved.splice(sourceIndex, 1)
+    const targetIndex = moved.findIndex((item) => item.id === target.id)
+    if (targetIndex < 0) return
+    const insertAfterTarget = destination === 'down' || destination === 'last'
+    moved.splice(targetIndex + (insertAfterTarget ? 1 : 0), 0, source)
+    const reordered = moved.map((item, index) => item.sortOrder === index + 1 ? item : { ...item, sortOrder: index + 1 })
     const previousOrderById = new Map(memos.map((item) => [item.id, item.sortOrder]))
     const changed = reordered.filter((item) => item.sortOrder !== previousOrderById.get(item.id))
     const byId = new Map(reordered.map((item) => [item.id, item]))
@@ -282,17 +286,17 @@ function App() {
   return <main className="app-shell">
     <header className="topbar"><div className="brand"><span className="brand-mark" aria-hidden="true"><MessageSquareText /></span><span className="brand-copy"><h1>ことばメモ</h1><small aria-hidden="true">KOTOBA MEMO</small></span></div><button type="button" className="icon-button" onClick={openSettings} aria-label="設定"><Settings size={23} /></button></header>
     <section className="intro"><h2>思い出したいことを、すぐに。</h2></section>
-    <label className="search-box"><Search size={24} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="さがす" aria-label="メモをさがす" /></label>
+    <label className="search-box"><Search size={24} /><input value={query} onChange={(event) => { setQuery(event.target.value); setReorderingMemoId(null) }} placeholder="さがす" aria-label="メモをさがす" /></label>
     <section className="actions"><button className="primary-button" onClick={openNew}><Plus size={28} /> 新しく書く</button><button className="voice-button" onClick={() => { openNew(); setTimeout(dictate, 120) }}><Mic size={25} /> 話して書く</button></section>
-    <div className="filter-group"><span className="filter-group-label">大分類</span><nav className="filter-tabs" aria-label="全体の表示切り替え"><button className={filter === 'all' ? 'selected' : ''} onClick={() => setFilter('all')}>すべて</button><button className={filter === 'marked' ? 'selected' : ''} onClick={() => setFilter('marked')}><Star size={18} fill={filter === 'marked' ? 'currentColor' : 'none'} /> マーク</button></nav></div>
-    <div className="category-group"><span className="filter-group-label">カテゴリ</span><nav className="category-tabs" aria-label="カテゴリの切り替え">{categories.map((category) => <button key={category.number} className={categoryFilter === category.number ? 'selected' : ''} onClick={() => setCategoryFilter((current) => current === category.number ? null : category.number)} aria-pressed={categoryFilter === category.number} aria-label={`${category.number} ${category.name}`}><b>{category.number}</b>{category.name}</button>)}</nav><small>選択中のカテゴリをもう一度押すと、絞り込みを解除できます。</small></div>
-    <div className="list-tools"><button type="button" className={reordering ? 'reorder-toggle active' : 'reorder-toggle'} onClick={() => setReordering((current) => !current)} aria-pressed={reordering}><ArrowUpDown size={19} />{reordering ? '並べ替え完了' : '並べ替え'}</button></div>
+    <div className="filter-group"><span className="filter-group-label">大分類</span><nav className="filter-tabs" aria-label="全体の表示切り替え"><button className={filter === 'all' ? 'selected' : ''} onClick={() => { setFilter('all'); setReorderingMemoId(null) }}>すべて</button><button className={filter === 'marked' ? 'selected' : ''} onClick={() => { setFilter('marked'); setReorderingMemoId(null) }}><Star size={18} fill={filter === 'marked' ? 'currentColor' : 'none'} /> マーク</button></nav></div>
+    <div className="category-group"><span className="filter-group-label">カテゴリ</span><nav className="category-tabs" aria-label="カテゴリの切り替え">{categories.map((category) => <button key={category.number} className={categoryFilter === category.number ? 'selected' : ''} onClick={() => { setCategoryFilter((current) => current === category.number ? null : category.number); setReorderingMemoId(null) }} aria-pressed={categoryFilter === category.number} aria-label={`${category.number} ${category.name}`}><b>{category.number}</b>{category.name}</button>)}</nav><small>選択中のカテゴリをもう一度押すと、絞り込みを解除できます。</small></div>
     <section className="memo-list" aria-live="polite">
       {loading ? <p className="status">読み込み中…</p> : displayed.length === 0 ? <p className="status">まだメモがありません。<br />「新しく書く」から追加できます。</p> : displayed.map((memo, index) => <article className="memo-row" key={memo.id}>
-        <button className={`star-button ${memo.marked ? 'marked' : ''}`} onClick={() => void toggleMark(memo)} aria-label={memo.marked ? 'マークを外す' : 'マークする'}><Star fill={memo.marked ? 'currentColor' : 'none'} /></button>
+        <span className="memo-leading"><button className={`star-button ${memo.marked ? 'marked' : ''}`} onClick={() => void toggleMark(memo)} aria-label={memo.marked ? 'マークを外す' : 'マークする'}><Star fill={memo.marked ? 'currentColor' : 'none'} /></button><button type="button" className={reorderingMemoId === memo.id ? 'item-reorder-toggle active' : 'item-reorder-toggle'} onClick={() => setReorderingMemoId((current) => current === memo.id ? null : memo.id)} aria-pressed={reorderingMemoId === memo.id}>並べ替え</button></span>
         <span className="memo-number" aria-label={`表示番号 ${memo.displayNumber}`}>{memo.displayNumber}.</span>
         <button className="memo-content" onClick={() => openEdit(memo)}><strong>{memo.title}</strong><span className="memo-category">{memo.categoryNumber} {categoryName(categories, memo.categoryNumber)}</span>{memo.meaning && <span className="memo-meaning">{memo.meaning}</span>}</button>
-        {reordering ? <span className="reorder-buttons"><button type="button" onClick={() => void moveMemo(memo, -1)} disabled={index === 0 || movingMemoId !== null} aria-label={`「${memo.title}」を上へ`}><ArrowUp size={20} /></button><button type="button" onClick={() => void moveMemo(memo, 1)} disabled={index === displayed.length - 1 || movingMemoId !== null} aria-label={`「${memo.title}」を下へ`}><ArrowDown size={20} /></button></span> : <button className="icon-button edit" onClick={() => openEdit(memo)} aria-label="編集"><Edit3 size={22} /></button>}
+        <button className="icon-button edit" onClick={() => openEdit(memo)} aria-label="編集"><Edit3 size={22} /></button>
+        {reorderingMemoId === memo.id && <span className="reorder-menu" aria-label={`「${memo.title}」の並べ替え`}><button type="button" onClick={() => void moveMemo(memo, 'first')} disabled={index === 0 || movingMemoId !== null}><ArrowUp size={16} />一番上へ</button><button type="button" onClick={() => void moveMemo(memo, 'up')} disabled={index === 0 || movingMemoId !== null}><ArrowUp size={16} />1つ上へ</button><button type="button" onClick={() => void moveMemo(memo, 'down')} disabled={index === displayed.length - 1 || movingMemoId !== null}><ArrowDown size={16} />1つ下へ</button><button type="button" onClick={() => void moveMemo(memo, 'last')} disabled={index === displayed.length - 1 || movingMemoId !== null}><ArrowDown size={16} />一番下へ</button></span>}
       </article>)}
     </section>
     {!isCloudConfigured && <section className="local-note"><strong>いまはこの端末だけの試作モードです</strong><span>同期を有効にするには、Supabaseの設定を追加します。</span></section>}
