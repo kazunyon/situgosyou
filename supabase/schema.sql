@@ -4,6 +4,7 @@ create table if not exists public.memos (
   user_id uuid not null references auth.users(id) on delete cascade default auth.uid(),
   section varchar(20) not null default 'daily' check (section in ('daily', 'pc-linux')),
   display_number integer not null default 1 check (display_number between 1 and 9999),
+  sort_order integer not null default 2147483647 check (sort_order between 1 and 2147483647),
   category_number integer not null default 1 check (category_number between 1 and 9999),
   title varchar(255) not null,
   meaning varchar(2000) not null default '',
@@ -30,6 +31,25 @@ do $$
 begin
   if not exists (select 1 from pg_constraint where conname = 'memos_display_number_check' and conrelid = 'public.memos'::regclass) then
     alter table public.memos add constraint memos_display_number_check check (display_number between 1 and 9999);
+  end if;
+end $$;
+
+-- 表示番号を変えずに、利用者が一覧の表示順を変更できるようにします。
+alter table public.memos add column if not exists sort_order integer;
+with ordered as (
+  select id, row_number() over (partition by user_id, section order by display_number, created_at, id)::integer as value
+  from public.memos
+)
+update public.memos as memos
+set sort_order = ordered.value
+from ordered
+where memos.id = ordered.id and memos.sort_order is null;
+alter table public.memos alter column sort_order set default 2147483647;
+alter table public.memos alter column sort_order set not null;
+do $$
+begin
+  if not exists (select 1 from pg_constraint where conname = 'memos_sort_order_check' and conrelid = 'public.memos'::regclass) then
+    alter table public.memos add constraint memos_sort_order_check check (sort_order between 1 and 2147483647);
   end if;
 end $$;
 
@@ -82,3 +102,4 @@ create index if not exists memos_user_updated_idx on public.memos (user_id, upda
 create index if not exists memos_user_number_idx on public.memos (user_id, display_number, created_at) where deleted = false;
 create index if not exists memos_user_category_idx on public.memos (user_id, category_number, display_number) where deleted = false;
 create index if not exists memos_user_section_idx on public.memos (user_id, section, display_number) where deleted = false;
+create index if not exists memos_user_sort_idx on public.memos (user_id, section, sort_order, display_number) where deleted = false;
