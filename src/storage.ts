@@ -5,12 +5,6 @@ const LOCAL_KEY = 'kotoba-memo-items'
 const BACKUP_FORMAT = 'kotoba-memo-backup'
 const BACKUP_VERSION = 6
 const MAX_BACKUP_CATEGORIES = 10
-const demoItems: Memo[] = [
-  { id: 'demo-1', section: 'daily', displayNumber: 1, sortOrder: 1, categoryNumber: 3, title: 'sudo passwd root', meaning: 'rootのパスワードを変更する', steps: [], marked: true, deleted: false, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
-  { id: 'demo-2', section: 'daily', displayNumber: 2, sortOrder: 2, categoryNumber: 2, title: '病院に電話する', meaning: '明日の10時に予約', steps: [], marked: false, deleted: false, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
-  { id: 'demo-3', section: 'daily', displayNumber: 3, sortOrder: 3, categoryNumber: 1, title: '田中さん', meaning: 'となりの部屋', steps: [], marked: false, deleted: false, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() }
-]
-
 type DbMemo = { id: string; section?: string | null; display_number?: number | null; sort_order?: number | null; category_number?: number | null; title: string; meaning: string; steps?: unknown; marked: string; deleted: boolean; created_at: string; updated_at: string }
 const fromDb = (row: DbMemo, index: number): Memo => ({ id: row.id, section: isMemoSection(row.section) ? row.section : 'daily', displayNumber: row.display_number ?? index + 1, sortOrder: isSortOrder(row.sort_order) ? row.sort_order : row.display_number ?? index + 1, categoryNumber: isCategoryNumber(row.category_number) ? row.category_number : 1, title: row.title, meaning: row.meaning, steps: Array.isArray(row.steps) && row.steps.every(isGuideStep) ? row.steps : [], marked: row.marked === '★', deleted: row.deleted, createdAt: row.created_at, updatedAt: row.updated_at })
 const toDb = (item: Memo) => ({ id: item.id, section: item.section, display_number: item.displayNumber, sort_order: item.sortOrder, category_number: item.categoryNumber, title: item.title, meaning: item.meaning, steps: item.steps, marked: item.marked ? '★' : '', deleted: item.deleted, updated_at: item.updatedAt })
@@ -110,8 +104,8 @@ function localItems(): Memo[] {
     }
     return normalized
   }
-  localStorage.setItem(LOCAL_KEY, JSON.stringify(demoItems))
-  return demoItems
+  localStorage.setItem(LOCAL_KEY, '[]')
+  return []
 }
 
 export async function loadMemos(): Promise<Memo[]> {
@@ -183,7 +177,7 @@ export function parseBackup(contents: string): ParsedBackup {
   const memos = withMemoDefaults(value.memos as StoredMemo[]).map((item) => ({ ...item, deleted: false }))
   if (backupVersion < 4) return { memos, categories: null }
 
-  if (!Array.isArray(value.categories) || value.categories.length < 1 || value.categories.length > MAX_BACKUP_CATEGORIES || !value.categories.every(isMemoCategory)) {
+  if (!Array.isArray(value.categories) || value.categories.length > MAX_BACKUP_CATEGORIES || !value.categories.every(isMemoCategory)) {
     throw new Error('バックアップファイルのカテゴリ情報が壊れています。')
   }
 

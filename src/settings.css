@@ -52,6 +52,17 @@
   gap: 9px;
 }
 
+.category-empty {
+  margin: 0;
+  padding: 16px;
+  border-radius: 12px;
+  background: #fff;
+  color: #756664;
+  font-size: 15px;
+  line-height: 1.6;
+  text-align: center;
+}
+
 .category-master-row {
   display: grid;
   grid-template-columns: 34px minmax(0, 1fr) 42px;
