@@ -1,5 +1,5 @@
 import { ChangeEvent, ClipboardEvent as ReactClipboardEvent, FormEvent, useEffect, useMemo, useRef, useState } from 'react'
-import { ArrowDown, ArrowUp, Camera, Check, ChevronLeft, ChevronRight, ClipboardPaste, Download, Edit3, ImagePlus, Laptop, LogIn, MessageSquareText, Mic, Plus, Search, Settings, Star, Trash2, Upload, X } from 'lucide-react'
+import { ArrowDown, ArrowUp, Camera, Check, ChevronLeft, ChevronRight, ClipboardPaste, Cloud, Download, Edit3, ImagePlus, Laptop, LogIn, MessageSquareText, Mic, Plus, Search, Settings, Star, Trash2, Upload, X } from 'lucide-react'
 import { DEFAULT_CATEGORIES, loadCategories, MAX_CATEGORIES, saveCategories } from './categories'
 import { MeaningEditor } from './MeaningEditor'
 import { isCloudConfigured, supabase } from './supabase'
@@ -290,7 +290,7 @@ function App() {
   }
 
   return <main className="app-shell">
-    <header className="topbar"><div className="brand"><span className="brand-mark" aria-hidden="true"><MessageSquareText /></span><span className="brand-copy"><h1>ことばメモ</h1><small aria-hidden="true">KOTOBA MEMO</small></span></div><button type="button" className="icon-button" onClick={openSettings} aria-label="設定"><Settings size={23} /></button></header>
+    <header className="topbar"><div className="brand"><span className="brand-mark" aria-hidden="true"><MessageSquareText /></span><span className="brand-copy"><h1>ことばメモ</h1><small aria-hidden="true">KOTOBA MEMO</small></span></div><div className="topbar-actions">{currentUserEmail && <span className="sync-indicator" role="status" aria-label={`${currentUserEmail} で同期中`} title={`${currentUserEmail} で同期中`}><Cloud size={23} /></span>}<button type="button" className="icon-button" onClick={openSettings} aria-label="設定"><Settings size={23} /></button></div></header>
     <section className="intro"><h2>思い出したいことを、すぐに。</h2></section>
     <label className="search-box"><Search size={24} /><input value={query} onChange={(event) => { setQuery(event.target.value); setReorderingMemoId(null) }} placeholder={section === 'daily' ? '日常用をさがす' : 'PC/Linuxの操作をさがす'} aria-label="メモをさがす" /></label>
     <section className={`actions ${section === 'pc-linux' ? 'single-action' : ''}`}><button className="primary-button" onClick={openNew}><Plus size={28} /> {section === 'daily' ? '新しく書く' : '操作項目を追加'}</button>{section === 'daily' && <button className="voice-button" onClick={() => { openNew(); setTimeout(dictate, 120) }}><Mic size={25} /> 話して書く</button>}</section>
