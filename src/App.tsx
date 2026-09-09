@@ -123,8 +123,9 @@ function App() {
     if (memo.deleted || memo.section !== section) return false
     const searchText = `${memo.displayNumber} ${memo.title} ${memo.meaning} ${memo.steps.map((step) => step.description).join(' ')}`.toLowerCase()
     if (!searchText.includes(query.toLowerCase())) return false
+    if (filter === 'marked' && !memo.marked) return false
     if (section === 'pc-linux') return true
-    return (filter === 'all' || memo.marked) && (categoryFilter === null || memo.categoryNumber === categoryFilter)
+    return categoryFilter === null || memo.categoryNumber === categoryFilter
   }).sort((a, b) => a.sortOrder - b.sortOrder || a.displayNumber - b.displayNumber || a.createdAt.localeCompare(b.createdAt)), [categoryFilter, filter, memos, query, section])
   const backupUnavailable = isCloudConfigured && !currentUserEmail
 
