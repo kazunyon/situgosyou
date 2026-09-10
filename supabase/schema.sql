@@ -7,6 +7,7 @@ create table if not exists public.memos (
   sort_order integer not null default 2147483647 check (sort_order between 1 and 2147483647),
   category_number integer not null default 1 check (category_number between 1 and 9999),
   title varchar(255) not null,
+  title_color varchar(10) not null default 'black' check (title_color in ('black', 'red', 'blue', 'green', 'gray')),
   meaning varchar(2000) not null default '',
   steps jsonb not null default '[]'::jsonb check (jsonb_typeof(steps) = 'array' and jsonb_array_length(steps) <= 10),
   marked char(1) not null default '' check (marked in ('', '★')),
@@ -74,6 +75,11 @@ alter table public.memos add constraint memos_section_check check (section in ('
 alter table public.memos add column if not exists steps jsonb not null default '[]'::jsonb;
 alter table public.memos drop constraint if exists memos_steps_check;
 alter table public.memos add constraint memos_steps_check check (jsonb_typeof(steps) = 'array' and jsonb_array_length(steps) <= 10);
+
+-- 日常用メモのタイトル色を保存し、既存のメモは黒にします。
+alter table public.memos add column if not exists title_color varchar(10) not null default 'black';
+alter table public.memos drop constraint if exists memos_title_color_check;
+alter table public.memos add constraint memos_title_color_check check (title_color in ('black', 'red', 'blue', 'green', 'gray'));
 
 alter table public.memo_categories enable row level security;
 do $$

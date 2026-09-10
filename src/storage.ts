@@ -1,13 +1,13 @@
-import type { CategoryNumber, GuideStep, Memo, MemoCategory, MemoSection } from './types'
+import type { CategoryNumber, GuideStep, Memo, MemoCategory, MemoSection, TitleColor } from './types'
 import { isCloudConfigured, supabase } from './supabase'
 
 const LOCAL_KEY = 'kotoba-memo-items'
 const BACKUP_FORMAT = 'kotoba-memo-backup'
-const BACKUP_VERSION = 6
+const BACKUP_VERSION = 7
 const MAX_BACKUP_CATEGORIES = 10
-type DbMemo = { id: string; section?: string | null; display_number?: number | null; sort_order?: number | null; category_number?: number | null; title: string; meaning: string; steps?: unknown; marked: string; deleted: boolean; created_at: string; updated_at: string }
-const fromDb = (row: DbMemo, index: number): Memo => ({ id: row.id, section: isMemoSection(row.section) ? row.section : 'daily', displayNumber: row.display_number ?? index + 1, sortOrder: isSortOrder(row.sort_order) ? row.sort_order : row.display_number ?? index + 1, categoryNumber: isCategoryNumber(row.category_number) ? row.category_number : 1, title: row.title, meaning: row.meaning, steps: Array.isArray(row.steps) && row.steps.every(isGuideStep) ? row.steps : [], marked: row.marked === '★', deleted: row.deleted, createdAt: row.created_at, updatedAt: row.updated_at })
-const toDb = (item: Memo) => ({ id: item.id, section: item.section, display_number: item.displayNumber, sort_order: item.sortOrder, category_number: item.categoryNumber, title: item.title, meaning: item.meaning, steps: item.steps, marked: item.marked ? '★' : '', deleted: item.deleted, updated_at: item.updatedAt })
+type DbMemo = { id: string; section?: string | null; display_number?: number | null; sort_order?: number | null; category_number?: number | null; title: string; title_color?: string | null; meaning: string; steps?: unknown; marked: string; deleted: boolean; created_at: string; updated_at: string }
+const fromDb = (row: DbMemo, index: number): Memo => ({ id: row.id, section: isMemoSection(row.section) ? row.section : 'daily', displayNumber: row.display_number ?? index + 1, sortOrder: isSortOrder(row.sort_order) ? row.sort_order : row.display_number ?? index + 1, categoryNumber: isCategoryNumber(row.category_number) ? row.category_number : 1, title: row.title, titleColor: isTitleColor(row.title_color) ? row.title_color : 'black', meaning: row.meaning, steps: Array.isArray(row.steps) && row.steps.every(isGuideStep) ? row.steps : [], marked: row.marked === '★', deleted: row.deleted, createdAt: row.created_at, updatedAt: row.updated_at })
+const toDb = (item: Memo) => ({ id: item.id, section: item.section, display_number: item.displayNumber, sort_order: item.sortOrder, category_number: item.categoryNumber, title: item.title, title_color: item.titleColor, meaning: item.meaning, steps: item.steps, marked: item.marked ? '★' : '', deleted: item.deleted, updated_at: item.updatedAt })
 
 type MemoBackup = {
   format: typeof BACKUP_FORMAT
@@ -28,6 +28,7 @@ const isDisplayNumber = (value: unknown): value is number => Number.isInteger(va
 const isSortOrder = (value: unknown): value is number => Number.isInteger(value) && (value as number) > 0 && (value as number) <= 2147483647
 const isCategoryNumber = (value: unknown): value is CategoryNumber => Number.isInteger(value) && (value as number) > 0 && (value as number) <= 9999
 const isMemoSection = (value: unknown): value is MemoSection => value === 'daily' || value === 'pc-linux'
+const isTitleColor = (value: unknown): value is TitleColor => value === 'black' || value === 'red' || value === 'blue' || value === 'green' || value === 'gray'
 const isGuideStep = (value: unknown): value is GuideStep => isRecord(value)
   && typeof value.id === 'string'
   && value.id.length > 0
@@ -58,6 +59,11 @@ function isMemoBase(value: unknown): value is Omit<Memo, 'displayNumber' | 'sort
 }
 
 function isMemo(value: unknown): value is Memo {
+  return isMemoWithoutTitleColor(value)
+    && isTitleColor((value as Record<string, unknown>).titleColor)
+}
+
+function isMemoWithoutTitleColor(value: unknown): boolean {
   return isMemoBase(value)
     && isMemoSection((value as Record<string, unknown>).section)
     && isDisplayNumber((value as Record<string, unknown>).displayNumber)
@@ -81,7 +87,14 @@ const isMemoWithoutSortOrder = (value: unknown): boolean => isMemoBase(value)
   && ((value as Record<string, unknown>).steps as unknown[]).length <= 10
   && ((value as Record<string, unknown>).steps as unknown[]).every(isGuideStep)
 
-type StoredMemo = Memo | (Omit<Memo, 'sortOrder' | 'section' | 'steps'> & { sortOrder?: number; section?: MemoSection; steps?: GuideStep[] }) | Omit<Memo, 'sortOrder' | 'categoryNumber' | 'section' | 'steps'> | Omit<Memo, 'sortOrder' | 'displayNumber' | 'categoryNumber' | 'section' | 'steps'>
+type StoredMemo = Omit<Memo, 'displayNumber' | 'sortOrder' | 'categoryNumber' | 'section' | 'steps' | 'titleColor'> & {
+  displayNumber?: number
+  sortOrder?: number
+  categoryNumber?: CategoryNumber
+  section?: MemoSection
+  steps?: GuideStep[]
+  titleColor?: TitleColor
+}
 
 function withMemoDefaults(items: StoredMemo[]): Memo[] {
   return items.map((item, index) => ({
@@ -90,6 +103,7 @@ function withMemoDefaults(items: StoredMemo[]): Memo[] {
     displayNumber: 'displayNumber' in item && isDisplayNumber(item.displayNumber) ? item.displayNumber : index + 1,
     sortOrder: 'sortOrder' in item && isSortOrder(item.sortOrder) ? item.sortOrder : ('displayNumber' in item && isDisplayNumber(item.displayNumber) ? item.displayNumber : index + 1),
     categoryNumber: 'categoryNumber' in item && isCategoryNumber(item.categoryNumber) ? item.categoryNumber : 1,
+    titleColor: 'titleColor' in item && isTitleColor(item.titleColor) ? item.titleColor : 'black',
     steps: 'steps' in item && Array.isArray(item.steps) && item.steps.every(isGuideStep) ? item.steps : []
   }))
 }
@@ -99,7 +113,7 @@ function localItems(): Memo[] {
   if (saved) {
     const parsed = JSON.parse(saved) as StoredMemo[]
     const normalized = withMemoDefaults(parsed)
-    if (normalized.some((item, index) => !('section' in parsed[index]) || parsed[index].section !== item.section || !('displayNumber' in parsed[index]) || parsed[index].displayNumber !== item.displayNumber || !('sortOrder' in parsed[index]) || parsed[index].sortOrder !== item.sortOrder || !('categoryNumber' in parsed[index]) || parsed[index].categoryNumber !== item.categoryNumber || !('steps' in parsed[index]))) {
+    if (normalized.some((item, index) => !('section' in parsed[index]) || parsed[index].section !== item.section || !('displayNumber' in parsed[index]) || parsed[index].displayNumber !== item.displayNumber || !('sortOrder' in parsed[index]) || parsed[index].sortOrder !== item.sortOrder || !('categoryNumber' in parsed[index]) || parsed[index].categoryNumber !== item.categoryNumber || !('titleColor' in parsed[index]) || parsed[index].titleColor !== item.titleColor || !('steps' in parsed[index]))) {
       localStorage.setItem(LOCAL_KEY, JSON.stringify(normalized))
     }
     return normalized
@@ -161,10 +175,10 @@ export function parseBackup(contents: string): ParsedBackup {
   }
 
   const backupVersion = isRecord(value) && typeof value.version === 'number' ? value.version : 0
-  if (!isRecord(value) || value.format !== BACKUP_FORMAT || ![1, 2, 3, 4, 5, BACKUP_VERSION].includes(backupVersion) || !isValidDate(value.exportedAt) || !Array.isArray(value.memos)) {
+  if (!isRecord(value) || value.format !== BACKUP_FORMAT || ![1, 2, 3, 4, 5, 6, BACKUP_VERSION].includes(backupVersion) || !isValidDate(value.exportedAt) || !Array.isArray(value.memos)) {
     throw new Error('「ことばメモ」のバックアップファイルではありません。')
   }
-  const isValidMemo = backupVersion === 1 ? isLegacyMemo : backupVersion === 2 ? isNumberedMemo : backupVersion < 5 ? (item: unknown) => isMemoBase(item) && isDisplayNumber((item as Record<string, unknown>).displayNumber) && isCategoryNumber((item as Record<string, unknown>).categoryNumber) : backupVersion === 5 ? isMemoWithoutSortOrder : isMemo
+  const isValidMemo = backupVersion === 1 ? isLegacyMemo : backupVersion === 2 ? isNumberedMemo : backupVersion < 5 ? (item: unknown) => isMemoBase(item) && isDisplayNumber((item as Record<string, unknown>).displayNumber) && isCategoryNumber((item as Record<string, unknown>).categoryNumber) : backupVersion === 5 ? isMemoWithoutSortOrder : backupVersion === 6 ? isMemoWithoutTitleColor : isMemo
   if (!value.memos.every(isValidMemo)) {
     throw new Error('バックアップファイルの内容が壊れています。')
   }
