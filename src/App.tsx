@@ -18,6 +18,13 @@ const errorMessage = (error: unknown) => error instanceof Error ? error.message 
 const wait = (milliseconds: number) => new Promise<void>((resolve) => window.setTimeout(resolve, milliseconds))
 
 type SpeechWindow = Window & typeof globalThis & { webkitSpeechRecognition?: new () => SpeechRecognition }
+type SyncState = 'waiting' | 'syncing' | 'synced'
+
+const syncStateLabels: Record<SyncState, string> = {
+  waiting: '同期待ち',
+  syncing: '同期中',
+  synced: '同期済み'
+}
 
 const imageToDataUrl = (file: File): Promise<string> => new Promise((resolve, reject) => {
   if (!file.type.startsWith('image/')) { reject(new Error('画像ファイルを選んでください。')); return }
@@ -73,6 +80,7 @@ function App() {
   const [resendSeconds, setResendSeconds] = useState(0)
   const [sentToEmail, setSentToEmail] = useState<string | null>(null)
   const [currentUserEmail, setCurrentUserEmail] = useState<string | null>(null)
+  const [syncState, setSyncState] = useState<SyncState>('waiting')
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [backingUp, setBackingUp] = useState(false)
   const [restoring, setRestoring] = useState(false)
@@ -82,26 +90,47 @@ function App() {
   const titleRef = useRef<HTMLInputElement>(null)
   const backupFileRef = useRef<HTMLInputElement>(null)
   const refreshPromiseRef = useRef<Promise<void> | null>(null)
+  const activeSyncsRef = useRef(0)
+  const syncFailedRef = useRef(false)
+
+  const runWithSyncStatus = async <T,>(operation: () => Promise<T>): Promise<T> => {
+    if (!isCloudConfigured) return operation()
+    if (activeSyncsRef.current === 0) syncFailedRef.current = false
+    activeSyncsRef.current += 1
+    setSyncState('syncing')
+    try {
+      return await operation()
+    } catch (error) {
+      syncFailedRef.current = true
+      throw error
+    } finally {
+      activeSyncsRef.current = Math.max(0, activeSyncsRef.current - 1)
+      if (activeSyncsRef.current === 0) setSyncState(syncFailedRef.current ? 'waiting' : 'synced')
+    }
+  }
 
   const refresh = async () => {
     if (refreshPromiseRef.current) return refreshPromiseRef.current
     const task = (async () => {
       setLoading(true)
       try {
-        for (let attempt = 0; attempt < 2; attempt += 1) {
-          try {
-            const [loadedMemos, loadedCategories] = await Promise.all([loadMemos(), loadCategories()])
-            setMemos(loadedMemos)
-            setCategories(loadedCategories)
-            setCategoryDrafts(loadedCategories.map((item) => ({ ...item })))
-            return
-          } catch (error) {
-            const message = errorMessage(error)
-            if (attempt === 0 && message.toLowerCase().includes('jwt issued at future')) { await wait(1500); continue }
-            setNotice('読み込みに失敗しました：' + message)
-            return
+        await runWithSyncStatus(async () => {
+          for (let attempt = 0; attempt < 2; attempt += 1) {
+            try {
+              const [loadedMemos, loadedCategories] = await Promise.all([loadMemos(), loadCategories()])
+              setMemos(loadedMemos)
+              setCategories(loadedCategories)
+              setCategoryDrafts(loadedCategories.map((item) => ({ ...item })))
+              return
+            } catch (error) {
+              const message = errorMessage(error)
+              if (attempt === 0 && message.toLowerCase().includes('jwt issued at future')) { await wait(1500); continue }
+              throw error
+            }
           }
-        }
+        })
+      } catch (error) {
+        setNotice('読み込みに失敗しました：' + errorMessage(error))
       } finally { setLoading(false) }
     })()
     refreshPromiseRef.current = task
@@ -112,8 +141,8 @@ function App() {
   useEffect(() => {
     if (!supabase) return
     let mounted = true
-    void supabase.auth.getSession().then(({ data }) => { if (mounted) setCurrentUserEmail(data.session?.user.email ?? null) })
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => { setCurrentUserEmail(session?.user.email ?? null); if (session) void refresh() })
+    void supabase.auth.getSession().then(({ data }) => { if (mounted) { setCurrentUserEmail(data.session?.user.email ?? null); if (data.session) void refresh() } })
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => { setCurrentUserEmail(session?.user.email ?? null); if (session) { setSyncState('waiting'); void refresh() } })
     return () => { mounted = false; subscription.unsubscribe() }
   }, [])
   useEffect(() => { if (draft) setTimeout(() => titleRef.current?.focus(), 100) }, [draft?.id])
@@ -160,7 +189,7 @@ function App() {
     if (normalized.some((item) => !item.name)) { setNotice('すべてのカテゴリ名を入力してください。'); return }
     if (new Set(normalized.map((item) => item.name)).size !== normalized.length) { setNotice('同じカテゴリ名は登録できません。'); return }
     setSavingCategories(true)
-    try { const saved = await saveCategories(normalized); setCategories(saved); setCategoryDrafts(saved.map((item) => ({ ...item }))); setNotice('カテゴリを保存しました') }
+    try { const saved = await runWithSyncStatus(() => saveCategories(normalized)); setCategories(saved); setCategoryDrafts(saved.map((item) => ({ ...item }))); setNotice('カテゴリを保存しました') }
     catch (error) { setNotice(`カテゴリを保存できませんでした：${errorMessage(error)}`) }
     finally { setSavingCategories(false) }
   }
@@ -171,7 +200,7 @@ function App() {
     if (draft.section === 'daily' && !categories.some((category) => category.number === draft.categoryNumber)) { setNotice('登録されているカテゴリを選んでください。'); return }
     if (draft.section === 'pc-linux' && (draft.steps.length < 1 || draft.steps.length > MAX_GUIDE_STEPS || draft.steps.some((step) => !step.description.trim()))) { setNotice('各手順に説明を入れてください。'); return }
     const item = { ...draft, title: draft.title.trim(), meaning: draft.meaning.trim(), steps: draft.steps.map((step) => ({ ...step, description: step.description.trim() })), updatedAt: new Date().toISOString() }
-    try { await saveMemo(item); setMemos((current) => [item, ...current.filter((memo) => memo.id !== item.id)]); setDraft(null); setNotice('保存しました') }
+    try { await runWithSyncStatus(() => saveMemo(item)); setMemos((current) => [item, ...current.filter((memo) => memo.id !== item.id)]); setDraft(null); setNotice('保存しました') }
     catch (error) { setNotice(`保存に失敗しました：${errorMessage(error)}`) }
   }
   const addGuideStep = () => {
@@ -220,7 +249,7 @@ function App() {
     event.preventDefault()
     void applyStepImage(index, file, true)
   }
-  const toggleMark = async (memo: Memo) => { const next = { ...memo, marked: !memo.marked, updatedAt: new Date().toISOString() }; await saveMemo(next); setMemos((current) => current.map((item) => item.id === next.id ? next : item)) }
+  const toggleMark = async (memo: Memo) => { const next = { ...memo, marked: !memo.marked, updatedAt: new Date().toISOString() }; await runWithSyncStatus(() => saveMemo(next)); setMemos((current) => current.map((item) => item.id === next.id ? next : item)) }
   const moveMemo = async (memo: Memo, destination: 'first' | 'up' | 'down' | 'last') => {
     const visibleIndex = displayed.findIndex((item) => item.id === memo.id)
     const targetVisibleIndex = destination === 'first' ? 0 : destination === 'last' ? displayed.length - 1 : visibleIndex + (destination === 'up' ? -1 : 1)
@@ -246,7 +275,7 @@ function App() {
 
     setMovingMemoId(memo.id)
     try {
-      await saveMemoOrder(changed)
+      await runWithSyncStatus(() => saveMemoOrder(changed))
       setMemos((current) => current.map((item) => byId.get(item.id) ?? item))
       setNotice('表示順を変更しました')
     } catch (error) {
@@ -255,7 +284,7 @@ function App() {
       setMovingMemoId(null)
     }
   }
-  const erase = async (memo: Memo) => { if (!confirm(`「${memo.title}」を削除しますか？`)) return; await removeMemo(memo); setMemos((current) => current.filter((item) => item.id !== memo.id)); setDraft(null); setViewingGuide(null); setNotice('削除しました') }
+  const erase = async (memo: Memo) => { if (!confirm(`「${memo.title}」を削除しますか？`)) return; await runWithSyncStatus(() => removeMemo(memo)); setMemos((current) => current.filter((item) => item.id !== memo.id)); setDraft(null); setViewingGuide(null); setNotice('削除しました') }
   const dictate = () => {
     const Recognition = window.SpeechRecognition || (window as SpeechWindow).webkitSpeechRecognition
     if (!Recognition) { setNotice('このブラウザでは音声入力に対応していません。'); return }
@@ -281,17 +310,17 @@ function App() {
 
   const downloadBackup = async () => {
     setBackingUp(true)
-    try { const [latestMemos, latestCategories] = await Promise.all([loadMemos(), loadCategories()]); setMemos(latestMemos); setCategories(latestCategories); const blob = new Blob([serializeBackup(latestMemos, latestCategories)], { type: 'application/json;charset=utf-8' }); const url = URL.createObjectURL(blob); const now = new Date(); const date = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}${String(now.getDate()).padStart(2, '0')}`; const link = document.createElement('a'); link.href = url; link.download = `ことばメモ_バックアップ_${date}.json`; document.body.appendChild(link); link.click(); link.remove(); setTimeout(() => URL.revokeObjectURL(url), 1000); setNotice(`${latestMemos.length}件をバックアップしました`) }
+    try { const [latestMemos, latestCategories] = await runWithSyncStatus(() => Promise.all([loadMemos(), loadCategories()])); setMemos(latestMemos); setCategories(latestCategories); const blob = new Blob([serializeBackup(latestMemos, latestCategories)], { type: 'application/json;charset=utf-8' }); const url = URL.createObjectURL(blob); const now = new Date(); const date = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}${String(now.getDate()).padStart(2, '0')}`; const link = document.createElement('a'); link.href = url; link.download = `ことばメモ_バックアップ_${date}.json`; document.body.appendChild(link); link.click(); link.remove(); setTimeout(() => URL.revokeObjectURL(url), 1000); setNotice(`${latestMemos.length}件をバックアップしました`) }
     catch (error) { setNotice(`バックアップに失敗しました：${errorMessage(error)}`) } finally { setBackingUp(false) }
   }
   const restoreBackup = async (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0]; event.target.value = ''; if (!file) return; setRestoring(true)
-    try { const imported = parseBackup(await file.text()); if (!confirm(`バックアップには${imported.memos.length}件あります。\n現在のデータを置き換えて戻しますか？`)) return; const restoredCategories = imported.categories ? await saveCategories(imported.categories) : categories; const restored = await replaceMemos(imported.memos); setMemos(restored); setCategories(restoredCategories); setCategoryDrafts(restoredCategories.map((item) => ({ ...item }))); setFilter('all'); setCategoryFilter(null); setQuery(''); setSettingsOpen(false); setNotice(`${restored.length}件を戻しました`) }
+    try { const imported = parseBackup(await file.text()); if (!confirm(`バックアップには${imported.memos.length}件あります。\n現在のデータを置き換えて戻しますか？`)) return; const [restoredCategories, restored] = await runWithSyncStatus(async () => { const nextCategories = imported.categories ? await saveCategories(imported.categories) : categories; return [nextCategories, await replaceMemos(imported.memos)] as const }); setMemos(restored); setCategories(restoredCategories); setCategoryDrafts(restoredCategories.map((item) => ({ ...item }))); setFilter('all'); setCategoryFilter(null); setQuery(''); setSettingsOpen(false); setNotice(`${restored.length}件を戻しました`) }
     catch (error) { setNotice(`バックアップを戻せませんでした：${errorMessage(error)}`) } finally { setRestoring(false) }
   }
 
   return <main className="app-shell">
-    <header className="topbar"><div className="brand"><span className="brand-mark" aria-hidden="true"><MessageSquareText /></span><span className="brand-copy"><h1>ことばメモ</h1><small aria-hidden="true">KOTOBA MEMO</small></span></div><div className="topbar-actions">{currentUserEmail && <span className="sync-indicator" role="status" aria-label={`${currentUserEmail} で同期中`} title={`${currentUserEmail} で同期中`}><Cloud size={23} /></span>}<button type="button" className="icon-button" onClick={openSettings} aria-label="設定"><Settings size={23} /></button></div></header>
+    <header className="topbar"><div className="brand"><span className="brand-mark" aria-hidden="true"><MessageSquareText /></span><span className="brand-copy"><h1>ことばメモ</h1><small aria-hidden="true">KOTOBA MEMO</small></span></div><div className="topbar-actions">{currentUserEmail && <span className={`sync-indicator ${syncState}`} role="status" aria-live="polite" aria-label={`${currentUserEmail}：${syncStateLabels[syncState]}`} title={`${currentUserEmail}：${syncStateLabels[syncState]}`}><Cloud size={20} aria-hidden="true" /><small>{syncStateLabels[syncState]}</small></span>}<button type="button" className="icon-button" onClick={openSettings} aria-label="設定"><Settings size={23} /></button></div></header>
     <section className="intro"><h2>思い出したいことを、すぐに。</h2></section>
     <label className="search-box"><Search size={24} /><input value={query} onChange={(event) => { setQuery(event.target.value); setReorderingMemoId(null) }} placeholder={section === 'daily' ? '日常用をさがす' : 'PC/Linuxの操作をさがす'} aria-label="メモをさがす" /></label>
     <section className={`actions ${section === 'pc-linux' ? 'single-action' : ''}`}><button className="primary-button" onClick={openNew}><Plus size={28} /> {section === 'daily' ? '新しく書く' : '操作項目を追加'}</button>{section === 'daily' && <button className="voice-button" onClick={() => { openNew(); setTimeout(dictate, 120) }}><Mic size={25} /> 話して書く</button>}</section>
@@ -309,7 +338,7 @@ function App() {
       </article> : <article className="guide-card" key={memo.id}><button className="guide-card-main" onClick={() => setViewingGuide(memo)}>{memo.steps[0]?.imageDataUrl ? <img src={memo.steps[0].imageDataUrl} alt="" /> : <span className="guide-placeholder"><ImagePlus /></span>}<span className="guide-card-copy"><small>操作項目 {memo.displayNumber}</small><strong>{memo.title}</strong><span>{memo.steps.length}手順</span></span></button><button className="icon-button guide-edit" onClick={() => openEdit(memo)} aria-label={`${memo.title}を編集`}><Edit3 size={22} /></button></article>)}
     </section>
     {!isCloudConfigured && <section className="local-note"><strong>いまはこの端末だけの試作モードです</strong><span>同期を有効にするには、Supabaseの設定を追加します。</span></section>}
-    {isCloudConfigured && (currentUserEmail ? <section className="sync-box sync-status"><Check size={22} /><div><strong>{currentUserEmail} で同期中</strong><span>この人のデータだけを表示しています。</span></div><button type="button" onClick={() => void signOut()}>別の人でログイン</button></section> : sentToEmail ? <form className="sync-box otp-box" onSubmit={verifyLoginCode}><Check size={22} /><div><strong>確認コードを入力</strong><span><b>{sentToEmail}</b> に届いた6桁の数字を入力してください。</span></div><label className="otp-label" htmlFor="login-code">6桁の確認コード</label><input id="login-code" className="otp-input" type="text" inputMode="numeric" autoComplete="one-time-code" value={authCode} onChange={(event) => setAuthCode(normalizeOtpCode(event.target.value))} placeholder="123456" autoFocus required /><button disabled={verifyingCode || authCode.length !== 6}>{verifyingCode ? '確認中…' : 'コードを確認してログイン'}</button><div className="otp-actions"><button type="button" onClick={() => void requestLoginCode(sentToEmail, true)} disabled={signingIn || resendSeconds > 0}>{resendSeconds > 0 ? `再送まで ${resendSeconds}秒` : 'コードを再送する'}</button><button type="button" onClick={() => { setSentToEmail(null); setAuthCode('') }}>メールアドレスを変更</button></div></form> : <form className="sync-box" onSubmit={sendLoginCode}><LogIn size={22} /><div><strong>PCとスマホで同期</strong><span>メールに届く6桁のコードでログインします</span></div><input type="email" value={authEmail} onChange={(event) => setAuthEmail(event.target.value)} placeholder="メールアドレス" required /><button disabled={signingIn}>{signingIn ? '送信中…' : '6桁のコードを送る'}</button></form>)}
+    {isCloudConfigured && (currentUserEmail ? <section className="sync-box sync-status"><Check size={22} /><div><strong>{currentUserEmail}：{syncStateLabels[syncState]}</strong><span>この人のデータだけを表示しています。</span></div><button type="button" onClick={() => void signOut()}>別の人でログイン</button></section> : sentToEmail ? <form className="sync-box otp-box" onSubmit={verifyLoginCode}><Check size={22} /><div><strong>確認コードを入力</strong><span><b>{sentToEmail}</b> に届いた6桁の数字を入力してください。</span></div><label className="otp-label" htmlFor="login-code">6桁の確認コード</label><input id="login-code" className="otp-input" type="text" inputMode="numeric" autoComplete="one-time-code" value={authCode} onChange={(event) => setAuthCode(normalizeOtpCode(event.target.value))} placeholder="123456" autoFocus required /><button disabled={verifyingCode || authCode.length !== 6}>{verifyingCode ? '確認中…' : 'コードを確認してログイン'}</button><div className="otp-actions"><button type="button" onClick={() => void requestLoginCode(sentToEmail, true)} disabled={signingIn || resendSeconds > 0}>{resendSeconds > 0 ? `再送まで ${resendSeconds}秒` : 'コードを再送する'}</button><button type="button" onClick={() => { setSentToEmail(null); setAuthCode('') }}>メールアドレスを変更</button></div></form> : <form className="sync-box" onSubmit={sendLoginCode}><LogIn size={22} /><div><strong>PCとスマホで同期</strong><span>メールに届く6桁のコードでログインします</span></div><input type="email" value={authEmail} onChange={(event) => setAuthEmail(event.target.value)} placeholder="メールアドレス" required /><button disabled={signingIn}>{signingIn ? '送信中…' : '6桁のコードを送る'}</button></form>)}
     <nav className="bottom-nav"><button className={!settingsOpen && section === 'daily' ? 'active' : ''} onClick={() => changeSection('daily')}><MessageSquareText size={21} />日常用</button><button className={!settingsOpen && section === 'pc-linux' ? 'active' : ''} onClick={() => changeSection('pc-linux')}><Laptop size={21} />PC/Linux用</button><button className={settingsOpen ? 'active' : ''} onClick={openSettings}><Settings size={21} />設定</button></nav>
     {notice && <div className="toast"><Check size={20} />{notice}<button onClick={() => setNotice('')} aria-label="閉じる"><X size={18} /></button></div>}
 
