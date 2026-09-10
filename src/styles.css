@@ -9,3 +9,9 @@
 .remove-image-button{display:flex;align-items:center;justify-content:center;gap:7px;width:100%;margin-top:10px;padding:11px;border:1px solid #e3c7c1;border-radius:12px;background:#fff0ed;color:#b84b3c;font-weight:800;cursor:pointer}.remove-image-button:hover{border-color:#d55848;background:#ffe9e4}
 @media(max-width:480px){.section-tabs button{font-size:15px}.guide-card-main{grid-template-columns:92px minmax(0,1fr);min-height:98px}.guide-card-main>img,.guide-placeholder{width:92px;height:98px}.guide-card-copy{padding:11px}.guide-card-copy strong{font-size:17px}.image-picker{min-height:160px}.guide-steps-view p{font-size:17px}}
 @media(min-width:700px){.guide-viewer{min-height:600px;border-radius:24px}}
+
+.sync-indicator{width:58px;height:auto;min-height:44px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:1px;background:#edf8f4;color:#087a67}
+.sync-indicator.syncing{background:#fff0ed;color:#d55848}
+.sync-indicator.waiting{background:#fff7e8;color:#946200}
+.sync-indicator svg{stroke-width:2.3}
+.sync-indicator small{font-size:10px;font-weight:800;line-height:1.15;white-space:nowrap}
