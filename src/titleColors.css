@@ -1,0 +1,93 @@
+.title-color-black { --title-color: #302725; }
+.title-color-red { --title-color: #b3261e; }
+.title-color-blue { --title-color: #2457a6; }
+.title-color-green { --title-color: #2f6b3b; }
+.title-color-gray { --title-color: #6d6562; }
+.title-color-mixed { --title-color: #756664; }
+
+.memo-content strong.memo-title,
+.daily-editor input.title-input {
+  color: var(--title-color);
+}
+
+.title-color-filter {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  min-width: 84px;
+  padding: 0 0 10px 2px;
+  border-bottom: 3px solid transparent;
+  color: var(--title-color);
+  font-size: 16px;
+  font-weight: 700;
+}
+
+.title-color-filter.selected {
+  border-bottom-color: var(--title-color);
+}
+
+.title-color-filter select {
+  min-width: 0;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: inherit;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.title-color-picker {
+  margin: 14px 0 4px;
+  padding: 0;
+  border: 0;
+}
+
+.editor.daily-editor .title-color-picker legend {
+  margin: 0 0 8px;
+  color: #756664;
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.title-color-picker > div {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 7px;
+}
+
+.title-color-picker button {
+  display: flex;
+  min-height: 42px;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 7px 5px;
+  border: 1px solid #ddd5d1;
+  border-radius: 10px;
+  background: #fff;
+  color: #514542;
+  font-size: 14px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.title-color-picker button > span {
+  width: 12px;
+  height: 12px;
+  flex: none;
+  border-radius: 50%;
+  background: var(--title-color);
+}
+
+.title-color-picker button.selected {
+  border-color: var(--title-color);
+  background: color-mix(in srgb, var(--title-color) 8%, white);
+  box-shadow: 0 0 0 1px var(--title-color);
+}
+
+@media (max-width: 480px) {
+  .filter-tabs { gap: 14px; }
+  .title-color-filter { min-width: 78px; font-size: 15px; }
+  .title-color-picker > div { grid-template-columns: repeat(5, minmax(52px, 1fr)); overflow-x: auto; padding: 1px; }
+  .title-color-picker button { gap: 4px; font-size: 13px; }
+}
