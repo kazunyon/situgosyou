@@ -6,7 +6,6 @@ export type Memo = {
   categoryNumber: CategoryNumber
   title: string
   titleColor: TitleColor
-  corrected: boolean
   meaning: string
   steps: GuideStep[]
   marked: boolean

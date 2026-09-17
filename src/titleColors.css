@@ -51,7 +51,7 @@
 
 .title-color-picker > div {
   display: grid;
-  grid-template-columns: repeat(6, minmax(0, 1fr));
+  grid-template-columns: repeat(5, minmax(0, 1fr));
   gap: 7px;
 }
 
@@ -85,33 +85,9 @@
   box-shadow: 0 0 0 1px var(--title-color);
 }
 
-.title-color-picker .correction-toggle {
-  color: #b94e3b;
-}
-
-.title-color-picker .correction-toggle.selected {
-  border-color: #b94e3b;
-  background: #fff0ed;
-  box-shadow: 0 0 0 1px #b94e3b;
-}
-
-.memo-content strong.memo-title .correction-label {
-  display: inline-flex;
-  align-items: center;
-  margin: 0 0 1px 8px;
-  padding: 2px 6px;
-  border: 1px solid #e86c5a;
-  border-radius: 6px;
-  color: #b94e3b;
-  font-size: 12px;
-  font-weight: 800;
-  line-height: 1.2;
-  vertical-align: middle;
-}
-
 @media (max-width: 480px) {
   .filter-tabs { gap: 14px; }
   .title-color-filter { min-width: 78px; font-size: 15px; }
-  .title-color-picker > div { grid-template-columns: repeat(6, minmax(52px, 1fr)); overflow-x: auto; padding: 1px; }
+  .title-color-picker > div { grid-template-columns: repeat(5, minmax(52px, 1fr)); overflow-x: auto; padding: 1px; }
   .title-color-picker button { gap: 4px; font-size: 13px; }
 }
