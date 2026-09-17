@@ -8,7 +8,6 @@ create table if not exists public.memos (
   category_number integer not null default 1 check (category_number between 1 and 9999),
   title varchar(255) not null,
   title_color varchar(10) not null default 'black' check (title_color in ('black', 'red', 'blue', 'green', 'gray')),
-  corrected boolean not null default false,
   meaning varchar(2000) not null default '',
   steps jsonb not null default '[]'::jsonb check (jsonb_typeof(steps) = 'array' and jsonb_array_length(steps) <= 10),
   marked char(1) not null default '' check (marked in ('', '★')),
@@ -81,9 +80,6 @@ alter table public.memos add constraint memos_steps_check check (jsonb_typeof(st
 alter table public.memos add column if not exists title_color varchar(10) not null default 'black';
 alter table public.memos drop constraint if exists memos_title_color_check;
 alter table public.memos add constraint memos_title_color_check check (title_color in ('black', 'red', 'blue', 'green', 'gray'));
-
--- タイトルに「訂正」表示を付けます。既存のメモは訂正なしです。
-alter table public.memos add column if not exists corrected boolean not null default false;
 
 alter table public.memo_categories enable row level security;
 do $$
