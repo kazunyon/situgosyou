@@ -14,10 +14,13 @@ export function spokenMeaning(meaning: string): string {
     .join('\n')
     .replace(/\[([^\]]+)\]\(https?:\/\/[^\s)]+\)/gi, '$1')
     .replace(/(?:https?:\/\/|www\.)[^\s<>「」『』（）()。、！？]+/gi, '')
+    .replace(/~~([^~]+)~~/g, '$1')
     .replace(/[ \t]+/g, ' ')
     .replace(/\n{3,}/g, '\n\n')
     .trim()
 }
+
+export const spokenTitle = withoutStrikethroughMarkers
 
 // Short utterances keep long explanations usable with browser speech engines.
 export function speechChunks(text: string): string[] {
@@ -35,3 +38,4 @@ export function speechChunks(text: string): string[] {
   }
   return chunks
 }
+import { withoutStrikethroughMarkers } from './textFormatting'

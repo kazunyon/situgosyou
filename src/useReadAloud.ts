@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { loadReadingSpeed, READING_RATES, READING_SPEED_KEY, speechChunks, spokenMeaning, type ReadingSpeed } from './readAloud'
+import { loadReadingSpeed, READING_RATES, READING_SPEED_KEY, speechChunks, spokenMeaning, spokenTitle, type ReadingSpeed } from './readAloud'
 
 type ReadingTarget = 'title' | 'meaning'
 
@@ -47,7 +47,7 @@ export function useReadAloud(title: string, meaning: string) {
   const start = (target: ReadingTarget, readingSpeed = speed) => {
     stop()
     if (!supported) { setMessage('このブラウザでは読み上げを利用できません。'); return }
-    const chunks = speechChunks(target === 'title' ? title : explanation)
+    const chunks = speechChunks(target === 'title' ? spokenTitle(title) : explanation)
     if (chunks.length === 0) { setMessage('読み上げることばや説明がありません。'); return }
     const synth = window.speechSynthesis
     const requestId = generation.current
