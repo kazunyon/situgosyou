@@ -5,8 +5,12 @@ import ts from 'typescript'
 
 // Use the project's existing compiler so these tests also run on Node 20.
 const source = await readFile(new URL('../src/readAloud.ts', import.meta.url), 'utf8')
+const textFormattingSource = await readFile(new URL('../src/textFormatting.ts', import.meta.url), 'utf8')
+const { outputText: textFormattingOutput } = ts.transpileModule(textFormattingSource, { compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2020 } })
+const textFormattingUrl = `data:text/javascript;base64,${Buffer.from(textFormattingOutput).toString('base64')}`
 const { outputText } = ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2020 } })
-const { spokenMeaning, speechChunks, loadReadingSpeed } = await import(`data:text/javascript;base64,${Buffer.from(outputText).toString('base64')}`)
+const readAloudOutput = outputText.replace("'./textFormatting'", `'${textFormattingUrl}'`)
+const { spokenMeaning, spokenTitle, speechChunks, loadReadingSpeed } = await import(`data:text/javascript;base64,${Buffer.from(readAloudOutput).toString('base64')}`)
 
 test('Wikipedia attribution is silent and later personal notes remain', () => {
   const input = '音楽を作ったり演奏したりする人です。\r\n\r\n出典：Wikipedia「音楽家」（抜粋・整形）\r\nhttps://ja.wikipedia.org/?curid=141\r\nCC BY-SA 4.0：https://creativecommons.org/licenses/by-sa/4.0/\r\n\r\n去年ライブに行きました。'
@@ -22,6 +26,11 @@ test('inline links retain readable labels and Japanese punctuation', () => {
 test('source-only and blank descriptions have no speech', () => {
   assert.equal(spokenMeaning('出典：Wikipedia\nhttps://example.com\nCC BY-SA 4.0：ライセンス'), '')
   assert.deepEqual(speechChunks(' \n '), [])
+})
+
+test('strikethrough markers are silent for titles and explanations', () => {
+  assert.equal(spokenTitle('前の文章。~~訂正を入れる。~~次の文章。'), '前の文章。訂正を入れる。次の文章。')
+  assert.equal(spokenMeaning('前の文章。~~訂正を入れる。~~次の文章。'), '前の文章。訂正を入れる。次の文章。')
 })
 
 test('long speech preserves the complete text without splitting Unicode characters', () => {
