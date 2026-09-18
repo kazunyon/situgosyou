@@ -1,3 +1,5 @@
+import { withoutMarkdownSyntax } from './textFormatting'
+
 export type ReadingSpeed = 'normal' | 'slow'
 export const READING_SPEED_KEY = 'kotoba-memo-reading-speed'
 export const READING_RATES: Record<ReadingSpeed, number> = { normal: 1, slow: 0.7 }
@@ -14,13 +16,13 @@ export function spokenMeaning(meaning: string): string {
     .join('\n')
     .replace(/\[([^\]]+)\]\(https?:\/\/[^\s)]+\)/gi, '$1')
     .replace(/(?:https?:\/\/|www\.)[^\s<>「」『』（）()。、！？]+/gi, '')
-    .replace(/~~([^~]+)~~/g, '$1')
+    .replace(/\*\*([^*]+)\*\*|~~([^~]+)~~|\*([^*]+)\*/g, (_token, strong, strike, emphasis) => strong ?? strike ?? emphasis ?? '')
     .replace(/[ \t]+/g, ' ')
     .replace(/\n{3,}/g, '\n\n')
     .trim()
 }
 
-export const spokenTitle = withoutStrikethroughMarkers
+export const spokenTitle = withoutMarkdownSyntax
 
 // Short utterances keep long explanations usable with browser speech engines.
 export function speechChunks(text: string): string[] {
@@ -38,4 +40,3 @@ export function speechChunks(text: string): string[] {
   }
   return chunks
 }
-import { withoutStrikethroughMarkers } from './textFormatting'

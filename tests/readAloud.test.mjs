@@ -8,6 +8,7 @@ const source = await readFile(new URL('../src/readAloud.ts', import.meta.url), '
 const textFormattingSource = await readFile(new URL('../src/textFormatting.ts', import.meta.url), 'utf8')
 const { outputText: textFormattingOutput } = ts.transpileModule(textFormattingSource, { compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2020 } })
 const textFormattingUrl = `data:text/javascript;base64,${Buffer.from(textFormattingOutput).toString('base64')}`
+const { parseInlineMarkdown, withoutMarkdownSyntax } = await import(textFormattingUrl)
 const { outputText } = ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2020 } })
 const readAloudOutput = outputText.replace("'./textFormatting'", `'${textFormattingUrl}'`)
 const { spokenMeaning, spokenTitle, speechChunks, loadReadingSpeed } = await import(`data:text/javascript;base64,${Buffer.from(readAloudOutput).toString('base64')}`)
@@ -31,6 +32,11 @@ test('source-only and blank descriptions have no speech', () => {
 test('strikethrough markers are silent for titles and explanations', () => {
   assert.equal(spokenTitle('前の文章。~~訂正を入れる。~~次の文章。'), '前の文章。訂正を入れる。次の文章。')
   assert.equal(spokenMeaning('前の文章。~~訂正を入れる。~~次の文章。'), '前の文章。訂正を入れる。次の文章。')
+})
+
+test('the supported Markdown subset preserves readable text for speech', () => {
+  assert.equal(withoutMarkdownSyntax('# 見出し\n- **太字**と*斜体*\n- [案内](https://example.com)\n- ~~訂正~~'), '見出し\n太字と斜体\n案内\n訂正')
+  assert.deepEqual(parseInlineMarkdown('**太字** *斜体* [案内](https://example.com) ~~訂正~~').map((item) => item.type), ['strong', 'text', 'emphasis', 'text', 'link', 'text', 'strikethrough'])
 })
 
 test('long speech preserves the complete text without splitting Unicode characters', () => {

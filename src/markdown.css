@@ -1,0 +1,15 @@
+.strikethrough { text-decoration: line-through; text-decoration-thickness: 1.5px; }
+.markdown-link, .markdown-link-text { color: #325cbb; text-decoration: underline; }
+.memo-content .markdown-link-text { display: inline; margin: 0; font: inherit; }
+.markdown-content > :first-child { margin-top: 0; }
+.markdown-content > :last-child { margin-bottom: 0; }
+.markdown-content p { white-space: pre-wrap; }
+.markdown-heading { margin: 18px 0 7px; color: #302725; line-height: 1.4; }
+.markdown-heading-1 { font-size: 1.25em; }
+.markdown-heading-2 { font-size: 1.15em; }
+.markdown-heading-3, .markdown-heading-4, .markdown-heading-5, .markdown-heading-6 { font-size: 1.05em; }
+.markdown-list { margin: 8px 0; padding-left: 1.45em; }
+.markdown-list li + li { margin-top: 4px; }
+.memo-content .markdown-content { margin-top: 5px; color: #756664; font-size: 15px; line-height: 1.4; }
+.memo-content .markdown-heading { margin: 8px 0 4px; color: inherit; }
+.memo-content .markdown-list { margin: 5px 0; }
