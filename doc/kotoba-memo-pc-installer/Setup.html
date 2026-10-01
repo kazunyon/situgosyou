@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>ことばメモ：公開前の準備</title>
+<style>*{box-sizing:border-box}body{margin:0;background:#f3f6fb;color:#183047;font:18px/1.75 system-ui,sans-serif}main{max-width:800px;margin:20px auto;padding:24px;background:white;border-radius:16px}h1{font-size:27px}h2{font-size:23px}section{border-top:1px solid #ccd7e5;margin-top:24px;padding-top:20px}label{display:block;margin-top:15px;font-weight:bold}input,textarea,button,a.action{width:100%;font:inherit;padding:12px;min-height:50px;border-radius:8px}input,textarea{border:1px solid #8294ab}textarea{height:160px}button,a.action{display:block;margin:12px 0;border:0;background:#165bcc;color:white;cursor:pointer;text-decoration:none;text-align:center}button.copy{background:#e8effa;color:#183047}.note{padding:14px;background:#eef4ff;border-radius:8px}:focus-visible{outline:4px solid #ffb020}a[aria-disabled=true]{background:#687b93;pointer-events:none}small{display:block}code{overflow-wrap:anywhere}</style></head>
+<body><main><h1>ことばメモ：公開前の準備</h1>
+<p class="note">公開を準備する人が、最初に1回行います。この案内はブラウザだけで開けます。使う人は公開URLを開いてログインするだけで利用できます。PC・スマホへのPWA追加は希望するときに行います。</p>
+<section><h2>1. 自分のSupabaseを指定</h2>
+<label for="project">Project URL、またはSupabaseの管理画面のURL</label>
+<input id="project" placeholder="Supabaseのアドレスをここへ貼り付け" autocapitalize="none" spellcheck="false">
+<button id="prepare">接続先を確認して、下の案内を準備する</button>
+<p id="status" role="status" aria-live="polite">作者の設定は入っていません。自分専用のプロジェクトを使ってください。</p>
+<label for="connection">PCツールの「自分のSupabase Project URL」へ入れる値</label>
+<input id="connection" readonly><button class="copy" data-copy="connection">接続用URLをコピー</button>
+<a class="action" data-path="sql/new" aria-disabled="true">自分のSupabaseのSQL Editorを開く</a>
+<p>PCツールの「初期設定SQLをコピー」をクリックし、開いたSQL Editorに右クリック → 貼り付け → Runで実行します。</p></section>
+<section><h2>2. Gmailで確認コードを送る</h2>
+<p>Googleの2段階認証を有効にし、送信用のGoogleアカウントでアプリパスワードを作ります。</p>
+<a class="action" href="https://myaccount.google.com/apppasswords" target="_blank" rel="noopener">Googleのアプリパスワード画面を開く</a>
+<p>アプリ名は「ことばメモ」。表示された16文字は、SupabaseのPassword欄へ貼り付けます。</p>
+<label for="sender">アプリパスワードを作ったGoogleアカウントのメールアドレス</label>
+<input id="sender" type="email" placeholder="送信用のGoogleアカウントのアドレス" autocomplete="email">
+<p class="note">通知の宛先や再設定用メールではなく、アプリパスワードを作ったアカウントを使います。通常のGoogleログインパスワードは使いません。</p>
+<a class="action" data-path="auth/smtp" aria-disabled="true">自分のSupabaseのSMTP Settingsを開く</a>
+<p>Enable custom SMTPをオンにし、次の値を入れてSave changesをクリックします。</p>
+<label for="senderValue">Sender email address と Username：両方に同じ値</label>
+<input id="senderValue" readonly><button class="copy" data-copy="senderValue">両方へ入れるメールアドレスをコピー</button>
+<label for="host">Host</label><input id="host" readonly value="smtp.gmail.com"><button class="copy" data-copy="host">Hostをコピー</button>
+<p>Sender name：ことばメモ<br>Port number：465<br>Minimum interval per user：60<br>Password：Googleで作ったアプリパスワード</p>
+<p>この案内画面には、パスワードや秘密キーを入力しません。Gmailには送信制限があります。まず自分の端末で送信・受信を確認します。</p></section>
+<section><h2>3. メールに数字を表示する</h2>
+<a class="action" data-path="auth/templates/magic-link-or-otp" aria-disabled="true">Magic link or OTPの本文設定を開く</a>
+<p>Bodyの右側のSourceをクリックし、本文を下の内容に入れ替え、Save changesをクリックします。</p>
+<label for="template">メール本文</label>
+<textarea id="template" readonly>&lt;h2&gt;ことばメモの確認コード&lt;/h2&gt;
+&lt;p&gt;確認コード：{{ .Token }}&lt;/p&gt;
+&lt;p&gt;この数字を、ことばメモの確認コード欄に入力してください。&lt;/p&gt;</textarea>
+<button class="copy" data-copy="template">メール本文をコピー</button>
+<a class="action" data-path="auth/templates" aria-disabled="true">Confirm sign upを設定するため、メールの一覧を開く</a>
+<p>一覧のConfirm sign upをクリックし、同じ本文をSourceへ貼り付けて保存します。本文が編集できない場合は、先にSMTPを保存してください。</p>
+<p class="note">修正版アプリは6～10桁に対応しています。8桁のままでも使えます。以前の6桁用アプリを使う場合は、下の画面でEmailをクリックし、一番下のEmail OTP lengthを6へ変更してSaveをクリックします。</p>
+<a class="action" data-path="auth/providers" aria-disabled="true">Email OTP lengthの設定を開く</a></section>
+<p>新しい利用者が初めてログインする場合は、Sign In / ProvidersのAllow new users to sign upも有効にします。既存の利用者だけで使う設定とは異なります。</p>
+<section><h2>4. 公開して、ブラウザで使う</h2>
+<p>新規公開はStart-Installer.cmdから行います。すでに公開したアプリを使う人は、追加ソフトの導入やZIPの展開は不要です。アプリの公開URLを開いて、メールの確認コードでログインします。</p>
+<p>PCとスマホでは、同じ公開URL・同じログイン用メールアドレスを使ってください。送信用Gmailアドレスと、ログインする人のメールアドレスは別でも構いません。</p>
+<p>以前の端末内保存版があるときは、新しい公開用リポジトリ名を指定します。以前のメモはバックアップから移します。準備途中の再実行では入力を変えず、同じ公開先で再開してください。</p>
+<a class="action" data-path="logs/auth-logs" aria-disabled="true">メール送信エラーの詳細を開く</a>
+<p>535 Username and Password not accepted：送信用GoogleアカウントとUsernameの一致、アプリパスワードの貼り付けを確認します。期限切れ：アプリでコードを再送し、最新のメールの数字を入力します。</p></section></main>
+<script>
+const byId=id=>document.getElementById(id);
+function normalize(value){const text=value.trim().replace(/\/$/,'');let match=text.match(/^https:\/\/supabase\.com\/dashboard\/project\/([a-z0-9]{20})(?:[/?#].*)?$/i)||text.match(/^https:\/\/([a-z0-9]{20})\.supabase\.co$/i);if(!match)throw Error('上の入力欄に、自分のSupabaseのURLを貼り付けてください。');return match[1].toLowerCase();}
+byId('project').addEventListener('input',()=>{byId('connection').value='';for(const link of document.querySelectorAll('[data-path]')){link.removeAttribute('href');link.setAttribute('aria-disabled','true');}byId('status').textContent='入力を変更しました。接続先を確認するボタンをクリックしてください。';});
+byId('prepare').addEventListener('click',()=>{try{const ref=normalize(byId('project').value);byId('connection').value='https://'+ref+'.supabase.co';for(const link of document.querySelectorAll('[data-path]')){link.href='https://supabase.com/dashboard/project/'+ref+'/'+link.dataset.path;link.target='_blank';link.rel='noopener';link.removeAttribute('aria-disabled');}byId('status').textContent='入力したプロジェクトの案内を準備しました。接続・SQL・メール送信の成功は、管理画面とアプリで確認してください。';}catch(error){byId('status').textContent=error.message;byId('project').focus();}});
+byId('sender').addEventListener('input',()=>{byId('senderValue').value=byId('sender').value.trim();});
+for(const button of document.querySelectorAll('[data-copy]'))button.addEventListener('click',async()=>{const field=byId(button.dataset.copy);if(!field.value){field.focus();byId('status').textContent='先に上の入力を済ませてください。';return;}try{await navigator.clipboard.writeText(field.value);byId('status').textContent='コピーしました。入力先で右クリック → 貼り付けを使えます。';}catch{field.focus();field.select();byId('status').textContent='文字を選択しました。右クリック → コピー、入力先で右クリック → 貼り付けを使ってください。';}});
+</script></body></html>

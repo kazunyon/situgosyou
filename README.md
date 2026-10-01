@@ -9,7 +9,9 @@ Supabaseを設定すると、同じメールアドレスでログインしたPC�
 
 公開先：<https://kazunyon.github.io/situgosyou/>
 
-インストール・設定手順：[doc/installation_guide.md](doc/installation_guide.md)
+インストール・設定手順：[ことばメモ インストール手順書](doc/installation_guide.md)
+
+参考資料：[PCインストールツール（参考用）](doc/kotoba-memo-pc-installer/README.md)。公開準備を補助するツールです。利用は任意で、導入方法・必要な設定・結果の確認は上の手順書をご覧ください。
 
 ## 主な機能
 

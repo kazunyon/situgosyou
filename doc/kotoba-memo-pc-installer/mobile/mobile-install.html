@@ -1,0 +1,197 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="theme-color" content="#f3f6fb">
+  <title>スマホにことばメモをインストール</title>
+  <style>
+    *{box-sizing:border-box}body{margin:0;background:#f3f6fb;color:#183047;font:17px/1.7 system-ui,sans-serif}
+    main{max-width:640px;margin:24px auto;padding:28px;background:white;border-radius:20px}
+    h1{font-size:26px;line-height:1.4}h2{font-size:21px}p{margin:12px 0}label{display:block;margin:20px 0 6px;font-weight:700}
+    input,select,button,a.action{width:100%;min-height:52px;padding:13px;border-radius:10px;font:inherit}
+    input,select{border:1px solid #8294ab;background:#fff;color:#183047}small{display:block;color:#415870;font-size:14px}
+    button,a.action{display:block;margin:16px 0;border:0;background:#165bcc;color:white;text-align:center;text-decoration:none;cursor:pointer}
+    button:disabled{background:#687b93;cursor:default}a.secondary{background:#e8effa;color:#144681}.note{padding:16px;background:#eef4ff;border-radius:12px}
+    #status{padding:12px 0}#status.error{color:#a01919;font-weight:700}code{overflow-wrap:anywhere;font-size:15px}
+    ol{padding-left:26px}li{padding:6px 0}details{margin-top:24px}summary{min-height:48px;cursor:pointer}
+    :focus-visible{outline:4px solid #ffb020;outline-offset:3px}[hidden]{display:none!important}
+    @media(max-width:680px){main{margin:12px;padding:22px 18px}h1{font-size:24px}}
+  </style>
+</head>
+<body><main>
+  <p>ことばメモ · スマホ用インストールツール</p>
+  <h1>スマホのホーム画面から<br>メモを開けるようにします</h1>
+  <p class="note">最初にPC版ツールへ自分のSupabase設定を入力し、公開を済ませてください。スマホも同じ公開先・同じメールアドレスで使うと、メモが同期されます。スマホへのAPIキーの再入力は不要です。</p>
+  <section id="browser-use" hidden><h2>インストールせずに使う</h2><p>下のボタンでアプリを開き、PCと同じメールアドレスでログインします。ホーム画面への追加は任意です。</p><a id="browser-app" class="action">ブラウザでアプリを開く</a></section>
+  <form id="settings">
+    <h2>1. 公開先と名前を入力</h2>
+    <label for="owner">公開した人のGitHubユーザー名</label>
+    <input id="owner" required maxlength="39" autocapitalize="none" autocorrect="off" spellcheck="false" autocomplete="off" placeholder="例：hanako" aria-describedby="owner-help">
+    <small id="owner-help">PC版ツールに入力したユーザー名です。メールアドレスではありません。</small>
+    <label for="repository">公開用リポジトリ名</label>
+    <input id="repository" required maxlength="64" autocapitalize="none" autocorrect="off" spellcheck="false" autocomplete="off" placeholder="例：kotoba-memo">
+    <label for="name">ホーム画面に表示したい名前</label>
+    <input id="name" required maxlength="40" autocomplete="off" placeholder="例：はなこのメモ" aria-describedby="name-help">
+    <small id="name-help">iPhoneは追加画面でこの名前を入力できます。Androidの名前は、PC版ツールで公開したアプリ名を使います。</small>
+    <label for="supabase-url">自分のSupabase Project URL（PCと同じもの）</label>
+    <input id="supabase-url" type="url" required maxlength="100" autocapitalize="none" autocorrect="off" spellcheck="false" placeholder="https://プロジェクトID.supabase.co">
+    <small>公開したアプリの設定を自動入力します。PCで設定した接続先と一致することを確認してください。</small>
+    <label for="email">PCでログインするのと同じメールアドレス</label>
+    <input id="email" type="email" required maxlength="254" autocapitalize="none" autocorrect="off" spellcheck="false" autocomplete="email" placeholder="自分のメールアドレス">
+    <small>ホーム画面に追加した後、このアドレスへ届く確認コードでログインします。アドレスを公開URLに含めることはありません。</small>
+    <label for="device">使うスマホ</label>
+    <select id="device"><option value="android">Android（Chrome）</option><option value="iphone">iPhone・iPad（Safari）</option></select>
+    <button type="submit" id="check">2. 公開先を確認する</button>
+  </form>
+  <p id="status" role="status" aria-live="polite">公開先を確認してから、インストールへ進みます。</p>
+  <section id="move" hidden>
+    <h2>入力した公開先へ移動</h2>
+    <p>インストールは、アプリと同じ公開先で行います。</p>
+    <code id="destination"></code>
+    <a id="continue" class="action">自分の公開先で続ける</a>
+  </section>
+  <section id="ready" hidden>
+    <h2>3. このスマホに追加する</h2>
+    <p id="published-name"></p><p id="rename" class="note" hidden></p>
+    <div id="android" hidden>
+      <p>Chromeで開いてください。ボタンが使えるようになったら、タップします。</p>
+      <button id="install" disabled>インストールを準備しています…</button>
+      <p id="install-status" role="status" aria-live="polite"></p>
+      <details open><summary>ボタンが使えない場合</summary>
+        <ol><li>下の「アプリを開く」をタップします。</li><li>Chromeの「︙」メニューをタップします。</li><li>「ホーム画面に追加」または「アプリをインストール」を選び、確認画面で追加します。</li></ol>
+        <p>すでにインストール済みの場合は、ホーム画面やアプリ一覧から起動します。LINEなどのアプリ内ブラウザでは、メニューからChromeで開き直してください。</p>
+      </details>
+    </div>
+    <div id="iphone" hidden>
+      <p>Safariで開いてください。以下の順にタップします。</p>
+      <ol><li>下の「アプリを開く」をタップします。</li><li>Safariのメニューから「共有」（四角に上向きの矢印）をタップします。</li><li>「ホーム画面に追加」をタップします。見つからない場合は共有メニューを下へスクロールします。</li><li>名前の欄に <strong id="iphone-name"></strong> を入力します。</li><li>「Webアプリとして開く」がある場合はオンにし、「追加」をタップします。</li></ol>
+      <button id="copy-name">入力した名前をコピー</button>
+      <p id="copy-status" role="status" aria-live="polite">貼り付けるときは、名前の欄を長押しして「ペースト」をタップします。</p>
+      <p>iPhoneはこのページのボタンから直接インストールできないため、Safariの追加画面で操作します。</p>
+    </div>
+    <a id="open-app" class="action">アプリを開く</a>
+    <h2>4. PCと同じアカウントでログイン</h2>
+    <ol><li>ホーム画面のアイコンから起動します。</li><li>メール欄に <strong id="login-email"></strong> を入力します。</li><li>「確認コードを送る」をタップし、メールに届いた確認コードを入力してログインします。</li></ol>
+    <p>PCと異なるメールアドレスでは、別のデータになります。接続先も同じである必要があります。</p>
+    <h2>5. PCとスマホの同期結果を確認</h2>
+    <ol><li>PCで「設定」からカテゴリ「確認用」を追加し、メモ「PCから確認」を保存します。</li><li>スマホへカテゴリとメモが自動で表示されることを確認します。</li><li>スマホでそのメモの説明を変更し、PCにも反映されることを確認します。</li><li>スマホを開き直しても、同じ内容が表示されることを確認します。</li></ol>
+    <p class="note">通信できない間は、この端末に保存し「未送信」と表示します。次にアプリをオンラインで開くと送信します。変更が競合した場合は、どちらの内容を使うか選びます。古い端末内版のメモは、最初にPCのバックアップから移してください。</p>
+    <label><input id="confirmed" type="checkbox" style="width:24px;min-height:24px;vertical-align:middle"> PC → スマホとスマホ → PC、両方の変更が反映されることを確認しました</label>
+    <p id="completion" role="status" aria-live="polite"></p>
+  </section>
+  <details><summary>まだ公開先がない・確認できない場合</summary>
+    <p>PC版ツールで新しい公開先を作成してください。このスマホ用ツールは、公開済みアプリをホーム画面へ追加するためのものです。スマホからGitHubへの新規公開は行いません。</p>
+    <p>以前の端末内版は同期できません。更新版PCツールで、自分のSupabaseを指定した新しい公開先を作成し、旧PC版からバックアップを移します。</p>
+  </details>
+</main>
+<script>
+(() => {
+  'use strict';
+  const $ = id => document.getElementById(id);
+  let promptEvent = null, verified = false, busy = false, revision = 0;
+  const directory = new URL('./', location.href);
+  const status = (message, error = false) => { $('status').textContent = message; $('status').className = error ? 'error' : ''; };
+  function clearResult() {
+    revision++; verified = false; $('ready').hidden = true; $('move').hidden = true;
+    $('install').disabled = true; $('confirmed').checked = false; $('completion').textContent = '';
+    $('install-status').textContent = ''; $('copy-status').textContent = '';
+    document.querySelector('link[rel="manifest"]')?.remove();
+  }
+  $('settings').addEventListener('input', () => { clearResult(); status('入力が変わりました。「公開先を確認する」を押してください。'); });
+  $('device').value = /iPhone|iPad|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1) ? 'iphone' : 'android';
+  function settings() {
+    const owner = $('owner').value.trim(), repository = $('repository').value.trim(), name = $('name').value.trim();
+    if (!/^[a-z\d](?:[a-z\d-]{0,37}[a-z\d])?$/i.test(owner)) throw Error('GitHubユーザー名を確認してください。メールアドレスは使えません。');
+    if (!/^[a-z\d][a-z\d._-]{0,63}$/i.test(repository) || /\.github\.io$/i.test(repository)) throw Error('リポジトリ名は英数字で始まる64文字以内です。「/」や「.github.io」で終わる名前は使えません。');
+    if (!name || name.length > 40 || /[\x00-\x1f]/.test(name)) throw Error('名前を1～40文字で入力してください。改行は使えません。');
+    if (owner.toLowerCase() === 'kazunyon' && repository.toLowerCase() === 'situgosyou') throw Error('作者の公開先は使いません。PC版ツールで作った自分の公開先を入力してください。');
+    const supabaseUrl = $('supabase-url').value.trim().replace(/\/$/, ''), email = $('email').value.trim();
+    if (!/^https:\/\/[a-z0-9]{20}\.supabase\.co$/.test(supabaseUrl)) throw Error('PC版ツールへ入力した、自分のSupabase Project URLを確認してください。');
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || email.length > 254) throw Error('PCと同じメールアドレスを入力してください。');
+    return { owner, repository, name, email, supabaseUrl, device: $('device').value, url: new URL('https://' + owner.toLowerCase() + '.github.io/' + repository + '/') };
+  }
+  async function jsonFile(name) {
+    const response = await fetch(new URL(name, directory), { cache: 'no-store', credentials: 'omit', signal: AbortSignal.timeout(15000) });
+    if (!response.ok || response.redirected) throw Error('公開ファイルを取得できません。公開完了を確認し、オンラインで再度お試しください。');
+    return response.json();
+  }
+  const initial = (async () => {
+    try {
+      const config = await jsonFile('installer-config.json');
+      if (config.schemaVersion === 2) {
+        if (!$('repository').value) $('repository').value = config.repository || '';
+        if (!$('name').value) $('name').value = config.appName || '';
+        if (!$('supabase-url').value) $('supabase-url').value = config.supabaseUrl || '';
+        if (config.storageMode === 'supabase' && /^[a-z\d][a-z\d._-]{0,63}$/i.test(config.repository) && directory.protocol === 'https:' && /^[a-z\d-]+\.github\.io$/i.test(directory.hostname) && directory.pathname === '/' + config.repository + '/' && !(directory.hostname === 'kazunyon.github.io' && config.repository === 'situgosyou')) {
+          $('browser-app').href = directory.href; $('browser-use').hidden = false;
+        }
+      }
+    } catch { /* A separately distributed helper can work without a published app. */ }
+    if (/^[a-z\d-]+\.github\.io$/i.test(location.hostname) && !$('owner').value) $('owner').value = location.hostname.split('.')[0];
+    const query = new URLSearchParams(location.search);
+    for (const key of ['owner', 'repository', 'name']) if (query.has(key) && !$(key).value) $(key).value = query.get(key).slice(0, $(key).maxLength);
+    if (query.has('name')) $('name').value = query.get('name').slice(0, 40);
+    if (['android', 'iphone'].includes(query.get('device'))) $('device').value = query.get('device');
+  })();
+  window.addEventListener('beforeinstallprompt', event => { event.preventDefault(); promptEvent = event; refreshInstall(); });
+  function refreshInstall() {
+    const enabled = verified && $('device').value === 'android' && !!promptEvent;
+    $('install').disabled = !enabled;
+    $('install').textContent = enabled ? 'このスマホにインストール' : 'Chromeのメニューから追加できます';
+  }
+  $('settings').addEventListener('submit', async event => {
+    event.preventDefault(); if (busy) return;
+    busy = true; $('check').disabled = true; clearResult(); const current = revision;
+    status('公開先を確認しています…');
+    try {
+      await initial; if (current !== revision) return; const input = settings();
+      if (directory.href !== input.url.href) {
+        const next = new URL('mobile-install.html', input.url);
+        for (const key of ['owner', 'repository', 'name', 'device']) next.searchParams.set(key, input[key]);
+        $('destination').textContent = input.url.href; $('continue').href = next.href;
+        $('move').hidden = false; status('入力した公開先へ移動して、確認を続けてください。'); return;
+      }
+      if (!window.isSecureContext || location.protocol !== 'https:') throw Error('HTTPSの公開URLをChromeまたはSafariで開いてください。');
+      const [config, manifest] = await Promise.all([jsonFile('installer-config.json'), jsonFile('manifest.webmanifest')]);
+      if (current !== revision) return;
+      if (config.schemaVersion !== 2 || config.storageMode !== 'supabase' || config.repository !== input.repository || config.appName !== manifest.name || config.supabaseUrl !== input.supabaseUrl) throw Error('Supabase同期用の公開設定と一致しません。PC版ツールで設定した同じ公開先・Project URLを使ってください。');
+      if (new URL(manifest.start_url, directory).href !== input.url.href || new URL(manifest.scope, directory).href !== input.url.href || manifest.display !== 'standalone') throw Error('アプリの開始URLが公開先と合いません。PC版ツールで設定を確認してください。');
+      if (!('serviceWorker' in navigator)) throw Error('このブラウザではPWAを準備できません。ChromeまたはSafariで開き直してください。');
+      const registration = await navigator.serviceWorker.register(new URL('sw.js', directory).href, { scope: directory.pathname });
+      if (current !== revision) return;
+      if (registration.scope !== input.url.href) throw Error('アプリの保存範囲が公開先と合いません。');
+      const link = document.createElement('link'); link.rel = 'manifest'; link.href = new URL('manifest.webmanifest', directory).href; document.head.append(link);
+      verified = true; $('ready').hidden = false; $('open-app').href = input.url.href;
+      $('login-email').textContent = input.email;
+      try { sessionStorage.setItem('kotoba-installer-email', input.email); } catch { /* Login remains available without browser storage. */ }
+      $('published-name').textContent = '公開されたアプリ名：' + manifest.name;
+      $('iphone-name').textContent = input.name;
+      $('android').hidden = input.device !== 'android'; $('iphone').hidden = input.device !== 'iphone';
+      $('rename').hidden = input.device !== 'android' || input.name === manifest.name;
+      $('rename').textContent = 'Androidには「' + manifest.name + '」として入ります。入力した「' + input.name + '」に変える場合は、PC版ツールでその表示名の新しい公開先を作ってください。';
+      refreshInstall(); status('自分のSupabaseへの同期設定を確認しました。追加後、PCと同じメールでログインしてください。');
+      $('ready').scrollIntoView({ block: 'start' });
+    } catch (error) { if (current === revision) status(error.message || '確認できませんでした。オンラインで再度お試しください。', true); }
+    finally { busy = false; $('check').disabled = false; }
+  });
+  $('install').addEventListener('click', async () => {
+    if (!verified || !promptEvent) return;
+    const event = promptEvent; promptEvent = null; refreshInstall();
+    try {
+      await event.prompt(); const result = await event.userChoice;
+      $('install-status').textContent = result.outcome === 'accepted' ? 'インストールを受け付けました。ホーム画面から起動して、メモの保存を確認してください。' : 'キャンセルしました。Chromeのメニューから再度追加できます。';
+    } catch { $('install-status').textContent = 'Chromeのメニューから追加してください。'; }
+  });
+  window.addEventListener('appinstalled', () => {
+    promptEvent = null; refreshInstall(); $('install').textContent = 'インストール済み';
+    $('install-status').textContent = 'ブラウザからインストール完了の通知が届きました。ホーム画面から起動して保存結果を確認してください。';
+  });
+  $('copy-name').addEventListener('click', async () => {
+    try { await navigator.clipboard.writeText($('name').value.trim()); $('copy-status').textContent = '名前をコピーしました。追加画面の名前欄を長押しして「ペースト」をタップします。'; }
+    catch { $('name').focus(); $('name').select(); $('copy-status').textContent = 'コピーできませんでした。名前の欄を長押ししてコピーするか、追加画面で名前を入力してください。'; }
+  });
+  $('confirmed').addEventListener('change', () => { $('completion').textContent = $('confirmed').checked ? '利用者によるPC・スマホの双方向同期の確認が完了しました。' : ''; });
+})();
+</script>
+</body></html>
